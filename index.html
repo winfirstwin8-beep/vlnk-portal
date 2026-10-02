@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Портал ВЛНК</title>
+<meta name="description" content="Контроль завдань лабораторії неруйнівного контролю: бригади, щоденні звіти, моніторинг, табелі">
+<meta name="theme-color" content="#1f4e8c">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="ВЛНК">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" href="icons/favicon.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<div id="login" hidden></div>
+<div id="app" hidden>
+  <header class="top">
+    <button id="back" class="btn icon" hidden aria-label="Назад">‹</button>
+    <a href="#/home" class="brand" aria-label="На головну"><img src="icons/logo.png" alt="NDT ВЛНК"></a>
+    <h1 id="title">Портал ВЛНК</h1>
+    <button id="chip" class="chip-s" data-act="sync" title="Синхронізація"></button>
+  </header>
+  <main id="main"></main>
+  <nav id="nav">
+    <a href="#/home" data-g="home"><svg viewBox="0 0 24 24"><path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg>Головна</a>
+    <a href="#/tasks" data-g="tasks"><svg viewBox="0 0 24 24"><path d="M9 4h6v3H9zM5 6h3v2h8V6h3v15H5zM8 12l2 2 4-4"/></svg>Завдання</a>
+    <a href="#/reports" data-g="reports"><svg viewBox="0 0 24 24"><path d="M6 3h9l4 4v14H6zM14 3v5h5M9 13h7M9 17h5"/></svg>Звіти</a>
+    <a href="#/mon" data-g="mon"><svg viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>Моніторинг</a>
+    <a href="#/menu" data-g="menu"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></svg>Ще</a>
+  </nav>
+</div>
+<div id="toast" role="status" aria-live="polite"></div>
+<script src="config.js"></script>
+<script src="js/core.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/views-work.js"></script>
+<script src="js/views-data.js"></script>
+<script src="js/views-vac.js"></script>
+<script src="js/views-ppe.js"></script>
+<script src="js/views-brief.js"></script>
+<script src="js/docs.js"></script>
+<script src="js/demo.js"></script>
+<script>
+  start();
+  if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
+    navigator.serviceWorker.register('sw.js').then(initUpdates).catch(function () {});
+  }
+</script>
+</body>
+</html>
