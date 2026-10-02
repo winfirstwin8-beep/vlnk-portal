@@ -203,6 +203,14 @@ document.addEventListener('change', e => {
     }).catch(err => toast('Помилка: ' + err.message));
     return;
   }
+  if (el.dataset.certup && el.files && el.files[0]) {
+    const f = el.files[0]; el.value = '';
+    queueRowFile('Сертифікати', el.dataset.certup, f).then(r => {
+      toast(r === 'saved' ? 'Сертифікат збережено (демо)' : navigator.onLine ? 'Сертифікат відправляється…' : 'Сертифікат збережено на телефоні — відправиться, коли зʼявиться інтернет');
+      render();
+    }).catch(err => toast('Помилка: ' + err.message));
+    return;
+  }
   if (el.id === 'doctxtfile' && el.files && el.files[0]) {
     const fr = new FileReader(); fr.onload = () => { const ta = $('textarea[name=text]'); if (ta) { ta.value = String(fr.result || ''); UI.dirty = true; toast('Текст вставлено — перевірте та збережіть'); } }; fr.readAsText(el.files[0], 'utf-8'); el.value = '';
     return;

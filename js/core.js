@@ -1,11 +1,12 @@
 /* Портал ВЛНК — ядро: утиліти, локальна база (IndexedDB), синхронізація, розрахунки */
 'use strict';
 
-const VER = '1.8.29';
+const VER = '1.8.30';
 /** Мінімальна версія серверного коду (Code.gs), з якою працює цей застосунок. */
 const NEED_API = '1.8.18';
 /** Що нового — показується один раз після оновлення (коротко, для працівників). */
 const CHANGES = {
+  '1.8.30': ['Картка працівника: скан сертифіката НК (PDF або фото) — додати, завантажити, надіслати на пошту, поділитися', 'Картка працівника: «Обладнання на руках» — між «Відпусткою» та «ЗІЗ»'],
   '1.8.29': ['Паливо: в таблиці електростанцій — лише ті, що працювали в місяці; у звіті не показується станція без мотогодин'],
   '1.8.28': ['Завдання: прибрано кнопки «Склад бригад» і «+ Завдання» (склад — у меню «Ще», завдання — «+ додати» в картці бригади)'],
   '1.8.27': ['Звіти: видно, хто й коли подав звіт; попередження про повторний звіт по обʼєкту за той самий період', 'Список звітів: фільтр «Повторні»'],
@@ -331,7 +332,9 @@ async function queueOrder(taskId, file) {
 }
 // ───────── протоколи НК: файли на картці обʼєкта ─────────
 /** Файл до рядка (протокол НК, текст інструкції/НД): у демо — прямо в рядку, у робочому режимі — у чергу на відправку на Диск. */
-const FILE_KIND = { 'Протоколи': 'proto', 'Документи': 'docfile' };
+const FILE_KIND = { 'Протоколи': 'proto', 'Документи': 'docfile', 'Сертифікати': 'certfile' };
+const KIND_TBL = { proto: 'Протоколи', docfile: 'Документи', certfile: 'Сертифікати' };
+const KIND_ACT = { proto: 'uploadproto', docfile: 'uploaddoc', certfile: 'uploadcert' };
 async function queueRowFile(table, id, file) {
   const f = await readFileForUpload(file);
   if (MODE === 'demo') {
@@ -379,19 +382,19 @@ async function sendUploads() {
       } catch (e) { break; }
       continue;
     }
-    if (u.kind === 'mailproto' || u.kind === 'maildoc') {
+    if (u.kind === 'mailproto' || u.kind === 'maildoc' || u.kind === 'mailcert') {
       try {
         const res = await api({ action: u.kind, id: u.taskId }, 120000);
         if (res.error === 'NOROW' || res.error === 'NOFILE') break; // протокол ще не дійшов на сервер — спробуємо пізніше
         await IDB.delMany('uploads', [up.keys[i]]);
-        toast(res.ok ? (u.kind === 'maildoc' ? 'Документ' : 'Протокол') + ' надіслано на ' + res.to : 'Лист не надіслано: ' + res.error);
+        toast(res.ok ? ({ maildoc: 'Документ', mailcert: 'Сертифікат' }[u.kind] || 'Протокол') + ' надіслано на ' + res.to : 'Лист не надіслано: ' + res.error);
       } catch (e) { break; }
       continue;
     }
-    if (u.kind === 'proto' || u.kind === 'docfile') {
-      const tbl = u.kind === 'proto' ? 'Протоколи' : 'Документи';
+    if (KIND_TBL[u.kind]) {
+      const tbl = KIND_TBL[u.kind];
       try {
-        const res = await api({ action: u.kind === 'proto' ? 'uploadproto' : 'uploaddoc', id: u.taskId, name: u.name, mime: u.mime, data: u.data }, 180000);
+        const res = await api({ action: KIND_ACT[u.kind], id: u.taskId, name: u.name, mime: u.mime, data: u.data }, 180000);
         if (res.ok) {
           const p = get(tbl, u.taskId);
           if (p) await applyLocal(tbl, { ...p, ...res.file });
@@ -424,7 +427,7 @@ async function sendUploads() {
 }
 async function refreshQueue() {
   const v = (await IDB.getAll('uploads')).values;
-  const isMail = u => u.kind === 'mail' || u.kind === 'mailproto' || u.kind === 'maildoc';
+  const isMail = u => u.kind === 'mail' || u.kind === 'mailproto' || u.kind === 'maildoc' || u.kind === 'mailcert';
   DB.upTasks = new Set(v.filter(u => !isMail(u)).map(u => u.taskId));
   DB.mailQ = new Set(v.filter(isMail).map(u => u.taskId));
   DB.cachedFiles = new Set((await IDB.getAll('files')).keys);
@@ -483,6 +486,19 @@ async function mailDoc(d) {
     return { queued: true };
   }
   const res = await api({ action: 'maildoc', id: d.id }, 120000);
+  if (!res.ok) throw new Error(res.error);
+  return res;
+}
+/** Надіслати скан сертифіката собі на пошту; без інтернету або до відправки файлу — у чергу. */
+async function mailCert(c) {
+  if (MODE === 'demo') return { demo: true };
+  if (!navigator.onLine || !c.fileId || DB.upTasks.has(c.id)) {
+    await IDB.putMany('uploads', [[undefined, { kind: 'mailcert', taskId: c.id, at: Date.now() }]]);
+    await refreshQueue();
+    if (navigator.onLine) syncSoon();
+    return { queued: true };
+  }
+  const res = await api({ action: 'mailcert', id: c.id }, 120000);
   if (!res.ok) throw new Error(res.error);
   return res;
 }

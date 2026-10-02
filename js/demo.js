@@ -1,7 +1,7 @@
 /* Портал ВЛНК — демо-дані (вигадані), лише для ознайомлення без сервера */
 'use strict';
 
-const DEMO_VER = '1.8.27'; // змінювати, коли змінюються демо-дані
+const DEMO_VER = '1.8.30'; // змінювати, коли змінюються демо-дані
 const DEMO_USER = { email: 'demo@vlnk.local', name: 'Гончаренко О.В. (демо)', personId: 'p1', role: 'керівник' };
 
 async function seedDemo() {
@@ -282,7 +282,9 @@ async function seedDemo() {
   let cn = 0;
   people.slice(1).forEach(([pid], i) => {
     const ms = [['RT', 'VT'], ['UT', 'VT', 'UTT'], ['RT', 'PT', 'VT'], ['UT', 'HB']][i % 4];
-    ms.forEach((mt, k) => add('Сертифікати', { id: 'cr' + (++cn), personId: pid, method: mt, level: i % 3 === 0 ? '2' : '1', number: 'UA-' + (2400 + cn), body: 'ОС персоналу НК', issued: '2023-0' + (1 + k) + '-10', validTo: cn === 3 ? plusDays(-10) : cn === 7 ? plusDays(35) : (2027 + (cn % 3)) + '-0' + (1 + cn % 9) + '-15' }));
+    ms.forEach((mt, k) => { const no = 'UA-' + (2400 + (++cn)); add('Сертифікати', { id: 'cr' + cn, personId: pid, method: mt, level: i % 3 === 0 ? '2' : '1', number: no, body: 'ОС персоналу НК', issued: '2023-0' + (1 + k) + '-10', validTo: cn === 3 ? plusDays(-10) : cn === 7 ? plusDays(35) : (2027 + (cn % 3)) + '-0' + (1 + cn % 9) + '-15',
+      // у частини сертифікатів уже є скан (демо-PDF)
+      ...(cn % 3 !== 0 ? { file: 'data:application/pdf;base64,' + demoPdf('NDT certificate ' + mt + '  No ' + no), fileName: 'Сертифікат ' + mt + ' № ' + no + '.pdf' } : {}) }); });
   });
 
   const eq = [

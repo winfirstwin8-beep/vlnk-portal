@@ -441,7 +441,9 @@ ROUTES.person = id => {
     return page('Відповідальний від замовника', h, '#/visitors');
   }
   const cs = all('Сертифікати').filter(c => c.personId === id).sort((a, b) => String(a.method).localeCompare(String(b.method)));
-  h += card('Сертифікати з НК', cs.length ? cs.map(c => { const v = validity(c.validTo); return `<${lead ? `a href="#/certform/${esc(c.id)}"` : 'div'} class="item"><div class="row between"><b>${esc(c.method)} ${c.level ? '· ' + esc(c.level) + ' рівень' : ''}${c.sector ? ' · сектор ' + esc(c.sector) : ''}</b>${badge(v.text, v.cls)}</div><span class="small mute">№ ${esc(c.number || '—')} ${c.body ? '· ' + esc(c.body) : ''} ${c.issued ? '· видано ' + uaDate(c.issued) : ''}</span></${lead ? 'a' : 'div'}>`; }).join('') : empty('Сертифікатів не внесено'),
+  const canCert = lead || id === ME.personId;
+  h += card('Сертифікати з НК', (cs.length ? cs.map(c => certItem(c, canCert, lead)).join('') : empty('Сертифікатів не внесено')) +
+    (cs.length ? '<p class="small mute">Скан сертифіката (PDF або фото) зберігається на Google Диску в папці «Сертифікати НК / ПІБ». «На пошту» — надсилає файл на ваш email.</p>' : ''),
     lead ? `<a class="small" href="#/certform/new/${esc(id)}">+ додати</a>` : '');
   const docs = all('Документи').filter(d => truthy(d.required));
   const ok = docs.filter(d => ackOf(d.id, id)).length;
@@ -451,10 +453,10 @@ ROUTES.person = id => {
   const vs = vacSummary(id, Yv);
   h += card('Відпустка · ' + Yv, vacChips(vs) + (vs.parts.length ? vs.parts.map(vacLine).join('') : empty('Не заплановано')) + (p.hireDate ? `<p class="small mute">Прийнятий на роботу ${uaDate(p.hireDate)}</p>` : ''),
     `<a class="small" href="#/vac">Графік ›</a>`);
+  h += card('Обладнання на руках', eq.length ? eq.map(e => `<div class="item"><b>${esc(e.name)}</b><span class="small mute">інв. ${esc(e.invNo || '—')} · ${esc(e.condition || '')}</span></div>`).join('') : empty('Немає'));
   const pp = ppeOf(id);
   if (pp.length || p.clothSize || p.shoeSize) h += card('ЗІЗ', `<p class="small">${sizesLine(p)}</p><p>${ppeCounts(pp)}</p>` + pp.filter(x => x.st.cls !== 'ok').map(x => ppeRow(x, id)).join(''),
     isLead() ? `<a class="small" href="#/ppeissue/${esc(id)}">Видати ›</a>` : `<a class="small" href="#/ppe">ЗІЗ ›</a>`);
-  h += card('Обладнання на руках', eq.length ? eq.map(e => `<div class="item"><b>${esc(e.name)}</b><span class="small mute">інв. ${esc(e.invNo || '—')} · ${esc(e.condition || '')}</span></div>`).join('') : empty('Немає'));
   return page(p.role === 'відвідувач' ? 'Відповідальний від замовника' : 'Працівник', h, p.role === 'відвідувач' ? '#/visitors' : '#/staff');
 };
 
@@ -515,14 +517,64 @@ ROUTES.certform = (id = 'new', pid) => {
     `<div class="grid2">${fSel('Метод / вид', 'method', CERT_TYPES, CERT_ALIAS[d.method] || d.method, { req: true })}${fSel('Рівень', 'level', ['1', '2', '3'], d.level, { none: '—' })}</div>
      ${fInp('Сектори', 'sector', d.sector, { ph: '1-5; 7' })}
      <div class="grid2">${fInp('№ сертифіката', 'number', d.number)}${fInp('Орган сертифікації', 'body', d.body)}</div>
-     <div class="grid2">${fInp('Дата видачі', 'issued', d.issued, { type: 'date' })}${fInp('Дійсний до', 'validTo', d.validTo, { type: 'date', req: true })}</div>`;
+     <div class="grid2">${fInp('Дата видачі', 'issued', d.issued, { type: 'date' })}${fInp('Дійсний до', 'validTo', d.validTo, { type: 'date', req: true })}</div>
+     <label class="f"><span>Скан сертифіката${src && (src.fileName || DB.upTasks.has(src.id)) ? ' — замінити файл' : ''}</span><input type="file" name="file" accept="application/pdf,image/*"><small>${src && src.fileName ? '📄 ' + esc(src.fileName) + ' · ' : ''}PDF або фото до 15 МБ; зберігається на Google Диску в папці «Сертифікати НК / ПІБ»</small></label>`;
   return page('Сертифікат', form('cert', id, body, src ? { del: { t: 'Сертифікати', id, back: '#/person/' + d.personId } } : {}), d.personId ? '#/person/' + d.personId : '#/certs');
 };
-FORMS.cert = async (d, id) => {
+FORMS.cert = async (d, id, f) => {
   if (!need(d, [['personId', 'працівник'], ['method', 'метод'], ['validTo', 'дійсний до']])) return;
+  const inp = f && f.querySelector('input[name=file]'); const file = inp && inp.files[0]; delete d.file;
   const src = id !== 'new' ? get('Сертифікати', id) : {};
-  await save('Сертифікати', { ...src, ...d, id: id !== 'new' ? id : undefined });
+  const row = await save('Сертифікати', { ...src, ...d, id: id !== 'new' ? id : undefined });
+  if (file) { try { await queueRowFile('Сертифікати', row.id, file); } catch (e) { toast('Файл не додано: ' + e.message); } }
   UI.dirty = false; savedMsg('Сертифікат збережено'); go('#/person/' + d.personId);
+};
+/** Сертифікат на картці працівника: дані, файл (завантажити / на пошту / поділитися), додати скан — керівник або сам працівник. */
+function certItem(c, canUp, lead) {
+  const v = validity(c.validTo);
+  const pend = DB.upTasks.has(c.id);
+  const has = !!(c.file || c.fileId) || pend;
+  const off = String(c.file || '').startsWith('data:') || DB.cachedFiles.has(c.fileId) || DB.cachedFiles.has('local-' + c.id);
+  return `<div class="item"><div class="row between"><b>${esc(c.method)} ${c.level ? '· ' + esc(c.level) + ' рівень' : ''}${c.sector ? ' · сектор ' + esc(c.sector) : ''}</b>${badge(v.text, v.cls)}</div>
+    <span class="small mute">№ ${esc(c.number || '—')} ${c.body ? '· ' + esc(c.body) : ''} ${c.issued ? '· видано ' + uaDate(c.issued) : ''}</span>
+    ${c.fileName ? `<span class="small ordername">📄 ${esc(c.fileName)}${off ? ' <span class="ok">✓ офлайн</span>' : ''}</span>` : ''}
+    <div class="row gap order">${has ? `<button type="button" class="btn small primary" data-act="certdl" data-id="${esc(c.id)}">⬇ Завантажити</button>${DB.mailQ.has(c.id) ? badge('✉ лист у черзі', 'warn') : `<button type="button" class="btn small ghost" data-act="certmail" data-id="${esc(c.id)}">✉ На пошту</button>`}${navigator.canShare ? `<button type="button" class="btn small ghost" data-act="certshare" data-id="${esc(c.id)}">↗ Поділитися</button>` : ''}` : '<span class="small mute">скан не додано</span>'}
+    ${pend ? badge('⏳ відправляється', 'warn') : ''}
+    ${canUp ? `<label class="btn small ${has ? 'ghost' : 'primary'} upl">${has ? 'Замінити файл' : '⬆ Додати PDF'}<input type="file" accept="application/pdf,image/*" data-certup="${esc(c.id)}"></label>` : ''}
+    ${lead ? `<a class="btn small ghost" href="#/certform/${esc(c.id)}">Редагувати</a>` : ''}</div></div>`;
+}
+const getCertFile = c => getRowFile('Сертифікати', c);
+ACTS.certdl = async d => {
+  try {
+    toast('Готую файл…');
+    const f = await getCertFile(get('Сертифікати', d.id));
+    const r = await saveFile(f.name || 'Сертифікат.pdf', fileToBlob(f));
+    toast(r === 'declined' ? 'Збереження скасовано' : 'Сертифікат завантажено: ' + (f.name || ''));
+    render();
+  } catch (e) { toast(e.message); }
+};
+ACTS.certmail = async d => {
+  const c = get('Сертифікати', d.id); if (!c) return;
+  const me = get('Персонал', ME.personId) || {};
+  const to = me.email || ME.email;
+  if (!await ask(`Надіслати сертифікат «${c.fileName || c.method}» на вашу пошту ${to}?`, 'Надіслати')) return;
+  try {
+    const r = await mailCert(c);
+    if (r.demo) {
+      await ask(`ДЕМО: у робочій версії цей лист піде автоматично.\n\nКому: ${to}\nТема: Сертифікат ${c.method || ''}${c.number ? ' № ' + c.number : ''} — ${personName(c.personId)}\n\nДобрий день, ${me.pib || ME.name}!\nУ вкладенні сертифікат з неруйнівного контролю.\nПрацівник: ${personName(c.personId)}\nМетод: ${c.method || ''}${c.level ? ', ' + c.level + ' рівень' : ''}\nДійсний до: ${uaDate(c.validTo)}\n\nВкладення: 📎 ${c.fileName || 'Сертифікат.pdf'}`, 'Зрозуміло', 'Закрити');
+      return;
+    }
+    toast(r.queued ? 'Лист піде автоматично, щойно файл і звʼязок будуть доступні' : 'Сертифікат надіслано на ' + r.to);
+    render();
+  } catch (e) { toast('Не вдалося надіслати: ' + e.message); }
+};
+ACTS.certshare = async d => {
+  try {
+    const f = await getCertFile(get('Сертифікати', d.id));
+    const file = new File([fileToBlob(f)], f.name || 'Сертифікат', { type: f.mime });
+    if (!navigator.canShare || !navigator.canShare({ files: [file] })) return toast('Цей пристрій не підтримує надсилання файлів — скористайтеся «Завантажити»');
+    await navigator.share({ files: [file], title: f.name });
+  } catch (e) { if (e.name !== 'AbortError') toast(e.message); }
 };
 
 // ═════════ ОБЛАДНАННЯ ═════════
