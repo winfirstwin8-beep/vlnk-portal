@@ -263,7 +263,7 @@ ROUTES.report = id => {
     ['Люд-год', fmtN(c.manH)],
     ['Особливий характер', c.special ? fmtN(c.special) + ' люд-год (' + fmtN(c.specialPer) + ' на особу, крім водія)' : '—'],
     ['Пальне авто', c.carL ? (() => { const cf = carFuelParts(r); return fmtN(c.carL) + ' л ' + esc(c.carFuel) + ` <span class="small mute">(${cf.season} норма)</span><br><span class="small">` + cf.parts.map(p => `${p.kind}: ${fmtN(p.qty)} ${p.unit} × ${fmtN3(p.norm)} ${p.normU} = ${fmtN(p.l)} л`).join('<br>') + '</span>'; })() : ''],
-    ['Електростанція', r.genId ? (() => { const x = genDay(r.genId, r.genHours, r.genRefuel === '' || r.genRefuel == null ? num(r.genHours) * genNorm(get('Генератори', r.genId), r.date) : r.genRefuel, r.date, r.id, num(r.updatedAt)); return esc((get('Генератори', r.genId) || {}).name || '') + ' · ' + esc(r.genFuel || c.genFuel) + (x ? `<br>заправлено: <b>${fmtN3(x.refuel)} л</b><br>витрачено мотогодин: <b>${fmtN(num(r.genHours))}</b><br>витрачено палива: <b>${fmtN3(x.cons)} л</b>` : ''); })() : '']
+    ['Електростанція', r.genId && (num(r.genHours) || num(r.genRefuel)) ? (() => { const x = genDay(r.genId, r.genHours, r.genRefuel === '' || r.genRefuel == null ? num(r.genHours) * genNorm(get('Генератори', r.genId), r.date) : r.genRefuel, r.date, r.id, num(r.updatedAt)); return esc((get('Генератори', r.genId) || {}).name || '') + ' · ' + esc(r.genFuel || c.genFuel) + (x ? `<br>заправлено: <b>${fmtN3(x.refuel)} л</b><br>витрачено мотогодин: <b>${fmtN(num(r.genHours))}</b><br>витрачено палива: <b>${fmtN3(x.cons)} л</b>` : ''); })() : '']
   ]));
   if (r.problems) h += card('Проблемні питання та затримки', `<p class="pre">${esc(r.problems)}</p>`);
   if (r.note) h += card('Примітка', `<p class="pre">${esc(r.note)}</p>`);

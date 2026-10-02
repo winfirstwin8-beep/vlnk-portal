@@ -802,13 +802,15 @@ ROUTES.fuel = () => {
   const cars = all('Авто').map(c => { const rs = reps.filter(r => r.carId === c.id); const sum = k => rs.reduce((s, r) => s + num(r[k]), 0); return [esc(c.name), esc(c.fuel || ''), fmtN(carNorm(c, mid)), fmtN(sum('km')), fmtN(sum('kmHeavy')), fmtN(sum('heaterH')), fmtN(rs.reduce((s, r) => s + calc(r).carL, 0)), new Set(rs.map(r => r.date)).size]; });
   h += card('Автомобілі', table(['Авто', 'Пальне', 'Норма, л/100км', 'Пробіг, км', 'з них важкі умови', 'Обігрівач, год', 'Витрата, л', 'Днів'], cars, 'num first') +
     `<p class="small mute">Витрата = пробіг × норма сезону + пробіг у важких дорожніх умовах × норма для важких умов + години автономного обігрівача × норма обігрівача. У таблиці норма — ${seasonName(mid)} (зимовий період ${mdText(winterRange().from)}–${mdText(winterRange().to)}); у кожному звіті береться норма на дату звіту.</p>`);
-  const gens = all('Генератори').map(g => {
+  // лише станції, що працювали в цьому місяці (є мотогодини або заправка у звітах)
+  const used = g => reps.some(r => r.genId === g.id && !truthy(r.travel) && (num(r.genHours) || num(r.genRefuel)));
+  const gens = all('Генератори').filter(used).map(g => {
     const rs = reps.filter(r => r.genId === g.id && !truthy(r.travel)); const hr = rs.reduce((s, r) => s + num(r.genHours), 0);
     const cons = z2l(rs.reduce((s, r) => s + num(r.genHours) * genNorm(g, r.date), 0)); const ref = z2l(rs.reduce((s, r) => s + (r.genRefuel === '' || r.genRefuel == null ? num(r.genHours) * genNorm(g, r.date) : num(r.genRefuel)), 0));
     const st = genState(g.id, addDays(monthEnd(m), 1), '', 0);
     return [esc(g.name), esc(g.fuel || ''), fmtN3(genNorm(g, mid)), fmtN(hr), fmtN3(cons), fmtN3(ref), `<b class="${st && st.bal === 0 ? 'ok' : 'warn'}">${fmtN3(st ? st.bal : 0)}</b>`, fmtN(st ? st.moto : 0)];
   });
-  h += card('Електростанції', table(['Генератор', 'Пальне', 'Норма, л/год', 'Мотогод', 'Витрата, л', 'Заправлено, л', 'Залишок, л', 'Мотогод всього'], gens, 'num first') + `<p class="small mute">Витрата = мотогодини × норма на дату звіту (літня або зимова). Заправка в звітах — «під нуль», тож залишок має бути 0. Залишок і лічильник мотогодин — на кінець місяця.</p>`);
+  h += card('Електростанції', !gens.length ? empty('У цьому місяці електростанції не використовувались') : table(['Генератор', 'Пальне', 'Норма, л/год', 'Мотогод', 'Витрата, л', 'Заправлено, л', 'Залишок, л', 'Мотогод всього'], gens, 'num first') + `<p class="small mute">Витрата = мотогодини × норма на дату звіту (літня або зимова). Заправка в звітах — «під нуль», тож залишок має бути 0. Залишок і лічильник мотогодин — на кінець місяця.</p>`);
   const byO = {};
   reps.forEach(r => { const c = calc(r); const o = byO[r.objectId] = byO[r.objectId] || { ДП: 0, 'А-95': 0 }; if (c.carL) o[c.carFuel] = (o[c.carFuel] || 0) + c.carL; if (c.genL) o[c.genFuel] = (o[c.genFuel] || 0) + c.genL; });
   const rows = Object.entries(byO).map(([id, f]) => [`<a href="#/object/${esc(id)}">${esc(objShort(id))}</a>`, fmtN(f['ДП'] || 0), fmtN(f['А-95'] || 0), fmtN(Object.values(f).reduce((a, b) => a + b, 0))]);
