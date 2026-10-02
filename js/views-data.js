@@ -246,9 +246,10 @@ ROUTES.objects = () => {
 
 /** Відповідальний від замовника: ПІБ + телефон/картка, якщо він є в «Відповідальних від замовника». */
 function respText(o) {
-  const p = objResp(o);
-  if (!p) return esc(o.contact);
-  return (isVisitor() ? esc(o.contact) : `<a href="#/person/${esc(p.id)}">${esc(o.contact)}</a>`) + (p.phone ? ` · <a href="tel:${esc(p.phone)}">${esc(p.phone)}</a>` : '');
+  const p = objResp(o), ph = respPhone(o);
+  const tel = ph ? ` · <a href="tel:${esc(ph.replace(/[^\d+]/g, ''))}">📞 ${esc(ph)}</a>` : '';
+  if (!p) return esc(o.contact) + tel;
+  return (isVisitor() ? esc(o.contact) : `<a href="#/person/${esc(p.id)}">${esc(o.contact)}</a>`) + tel;
 }
 /** Автомобіль на обʼєкті: закріплений у картці, інакше — авто бригад, що мають завдання на обʼєкті в поточному місяці. */
 function objCarText(o) {
@@ -361,6 +362,7 @@ ROUTES.objform = (id = 'new') => {
      ${fInp('Пропонований готель', 'hotel', d.hotel, { ph: 'назва, адреса, телефон' })}
      ${fInp('Населений пункт', 'settlement', d.settlement)}
      <fieldset class="f"><legend>Відповідальний від замовника</legend><div class="grid2">${fInp('ПІБ', 'contact', d.contact, { list: 'resplist', hint: visitors().length ? 'оберіть зі списку «Відповідальні від замовника» або впишіть' : '' })}${fInp('Посада', 'contactPos', d.contactPos)}</div>
+       ${fInp('Телефон', 'contactPhone', d.contactPhone, { type: 'tel', ph: '+380…', hint: objResp(d) && objResp(d).phone && !d.contactPhone ? 'якщо не вказати — з картки відповідального: ' + objResp(d).phone : '' })}
        <datalist id="resplist">${visitors().map(p => `<option value="${esc(p.pib)}">${esc(p.posada || '')}</option>`).join('')}</datalist></fieldset>
      ${fSel('Автомобіль', 'carId', carOpts(), d.carId, { none: 'авто бригади — за завданням' })}
      <div class="grid2">${fInp('Широта N', 'lat', d.lat, { mode: 'decimal' })}${fInp('Довгота E', 'lng', d.lng, { mode: 'decimal' })}</div>
@@ -377,6 +379,7 @@ FORMS.obj = async (d, id) => {
   if (!need(d, [['short', 'коротка назва']])) return;
   const src = id !== 'new' ? get('Обʼєкти', id) : {};
   const rp = objResp(d); if (rp && !String(d.contactPos || '').trim()) d.contactPos = rp.posada || '';
+  if (rp && !String(d.contactPhone || '').trim()) d.contactPhone = rp.phone || '';
   const row = await save('Обʼєкти', { ...src, ...d, id: id !== 'new' ? id : undefined });
   delete UI.draft['obj:' + id]; UI.dirty = false; savedMsg('Обʼєкт збережено'); go('#/object/' + row.id);
 };
