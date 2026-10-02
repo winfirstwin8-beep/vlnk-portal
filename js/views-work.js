@@ -9,8 +9,7 @@ ROUTES.tasks = () => {
   const view = UI.tview || 'month';
   const inB = t => fb === 'all' || String(t.brigade) === String(fb);
   const nWork = all('Завдання').filter(t => isTaskInWork(t) && inB(t)).length, nPlan = all('Завдання').filter(t => isTaskPlanned(t) && inB(t)).length;
-  let h = `<div class="row gap"><a class="btn ghost" href="#/brigades">Склад бригад</a>${isLead() ? `<a class="btn primary" href="#/taskform/new">+ Завдання</a>` : ''}</div>`;
-  h += seg('tview', [['month', 'Завдання на місяць'], ['work', `В роботі · ${nWork}`], ['plan', `Плануються · ${nPlan}`]], view).replace('class="seg"', 'class="seg wrap"');
+  let h = seg('tview', [['month', 'Завдання на місяць'], ['work', `В роботі · ${nWork}`], ['plan', `Плануються · ${nPlan}`]], view).replace('class="seg"', 'class="seg wrap"');
   h += seg('tbrig', [['all', 'Усі'], ...BRIGADES.map(n => [n, n === 5 ? '5 рез.' : 'Б' + n])], fb);
   if (view !== 'month') return page('Завдання', h + tasksByStatus(view, inB));
   h += monthNav('tmonth', m);
