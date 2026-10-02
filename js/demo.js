@@ -1,7 +1,7 @@
 /* Портал ВЛНК — демо-дані (вигадані), лише для ознайомлення без сервера */
 'use strict';
 
-const DEMO_VER = '1.8.26'; // змінювати, коли змінюються демо-дані
+const DEMO_VER = '1.8.27'; // змінювати, коли змінюються демо-дані
 const DEMO_USER = { email: 'demo@vlnk.local', name: 'Гончаренко О.В. (демо)', personId: 'p1', role: 'керівник' };
 
 async function seedDemo() {
@@ -168,10 +168,13 @@ async function seedDemo() {
         genId: travel ? '' : (n === 1 ? 'g1' : n === 2 ? 'g2' : ''), genHours: travel ? 0 : (n <= 2 ? Math.round(3 + rnd() * 4) : 0), genRefuel: '',
         ...mat, matManual: [],
         problems: rnd() < 0.08 ? pick(['Простій 2 год — не підготовлено стики до контролю', 'Затримка допуску на обʼєкт, чекали представника замовника', 'Несправність негатоскопа, перевіряли на запасному']) : '',
-        authorId: comp[n][0]
+        authorId: comp[n][0], createdAt: new Date(d + 'T18:' + String(5 + rn % 50).padStart(2, '0') + ':00').getTime()
       });
     }
   }
+  // повторний звіт (для демонстрації попередження): той самий обʼєкт і дата, інший працівник бригади
+  { const last = rows.filter(([t, r]) => t === 'Звіти' && !r.travel && +r.brigade === 2).map(x => x[1]).sort((a, b) => a.date.localeCompare(b.date)).slice(-2)[0];
+    if (last) add('Звіти', { ...last, id: 'r' + (++rn), authorId: comp[2][1] || last.authorId, createdAt: last.createdAt + 135 * 60000, note: 'Подано вдруге з іншого телефона' }); }
 
   NORMS_DEMO.forEach(([diameter, film, dev, fix, ptSolvent, ptPenetrant, ptDeveloper, vtHours, rtHours]) =>
     add('НормиМатеріалів', { id: 'nm' + diameter, diameter, film, dev, fix, ptSolvent, ptPenetrant, ptDeveloper, vtHours, rtHours }));

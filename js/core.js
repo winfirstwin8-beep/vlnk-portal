@@ -1,11 +1,12 @@
 /* Портал ВЛНК — ядро: утиліти, локальна база (IndexedDB), синхронізація, розрахунки */
 'use strict';
 
-const VER = '1.8.26';
+const VER = '1.8.27';
 /** Мінімальна версія серверного коду (Code.gs), з якою працює цей застосунок. */
 const NEED_API = '1.8.18';
 /** Що нового — показується один раз після оновлення (коротко, для працівників). */
 const CHANGES = {
+  '1.8.27': ['Звіти: видно, хто й коли подав звіт; попередження про повторний звіт по обʼєкту за той самий період', 'Список звітів: фільтр «Повторні»'],
   '1.8.26': ['Протоколи НК: у виборі обʼєкта — лише обʼєкти в роботі'],
   '1.8.25': ['НД: новий вид документа «Зразок протоколу» — за методами контролю'],
   '1.8.24': ['Формування документів: вибір бригади фільтрує картку «Звіти бригад за періодами», бригада — у заголовку й назві файлу'],
@@ -559,6 +560,48 @@ function carFuelParts(r, car) {
 /** Розрахунок по одному щоденному звіту. */
 /** Підсумковий запис за період (перенесений з шаблону «ВиконаноЗПочаткуРоку»): лише обсяги й матеріали, без годин, пального й табелю. */
 const isSummary = r => truthy(r.summary);
+
+// ───────── хто подав звіт і повторні звіти ─────────
+const personByEmail = e => { e = String(e || '').toLowerCase(); return e ? all('Персонал').find(p => String(p.email || '').toLowerCase() === e) : null; };
+const fmtDT = ms => { const t = new Date(num(ms)); if (!num(ms) || isNaN(t)) return ''; const p = n => String(n).padStart(2, '0'); return `${p(t.getDate())}.${p(t.getMonth() + 1)}.${t.getFullYear()} ${p(t.getHours())}:${p(t.getMinutes())}`; };
+/** Час подання: createdAt (з 1.8.27), для старих звітів — час останнього збереження. */
+const repWhen = r => num(r.createdAt) || num(r.updatedAt);
+/** Хто подав: автор звіту, інакше — за email останнього збереження. */
+function repAuthor(r) {
+  if (r.authorId && get('Персонал', r.authorId)) return shortName(personName(r.authorId));
+  const p = personByEmail(r.updatedBy); return p ? shortName(p.pib) : (r.updatedBy || '—');
+}
+function repEditor(r) { const p = personByEmail(r.updatedBy); return p ? shortName(p.pib) : (r.updatedBy || ''); }
+/** Інші звіти по тому самому обʼєкту, період яких перетинається (той самий характер: робота / переїзд). */
+const REPIDX = new WeakMap();
+/** Індекс звітів по обʼєктах + множини повторних і «перших» (до яких є повтор) — перераховується лише після змін даних. */
+function repIndex() {
+  const list = all('Звіти');
+  let ix = REPIDX.get(list);
+  if (ix) return ix;
+  const byObj = new Map();
+  list.forEach(x => { if (!byObj.has(x.objectId)) byObj.set(x.objectId, []); byObj.get(x.objectId).push(x); });
+  ix = { byObj, rep: new Set(), orig: new Set() };
+  REPIDX.set(list, ix);
+  list.forEach(r => {
+    const w = repWhen(r);
+    const firsts = repOverlaps(r, r.id).filter(x => String(x.brigade) === String(r.brigade) && (repWhen(x) < w || (repWhen(x) === w && String(x.id) < String(r.id))));
+    if (firsts.length) { ix.rep.add(r.id); firsts.forEach(x => ix.orig.add(x.id)); }
+  });
+  return ix;
+}
+function repOverlaps(r, exceptId) {
+  if (!r || !r.objectId || !r.date) return [];
+  const from = isSummary(r) && r.periodFrom ? r.periodFrom : r.date, to = r.date, tr = truthy(r.travel);
+  return (repIndex().byObj.get(r.objectId) || []).filter(x => x.id !== exceptId && truthy(x.travel) === tr &&
+    (isSummary(x) && x.periodFrom ? x.periodFrom : x.date) <= to && from <= x.date)
+    .sort((a, b) => repWhen(a) - repWhen(b));
+}
+/** Повторний звіт: раніше за нього той самий обʼєкт і період уже звітувала ця ж бригада. */
+const isRepeatReport = r => repIndex().rep.has(r.id);
+/** Звіт, до якого пізніше подано повтор. */
+const hasRepeat = r => repIndex().orig.has(r.id);
+const repLine = x => `${isSummary(x) && x.periodFrom ? uaDate(x.periodFrom) + ' – ' : ''}${uaDate(x.date)} · Б${x.brigade} — подав ${repAuthor(x)}${repWhen(x) ? ', ' + fmtDT(repWhen(x)) : ''}`;
 function calc(r) {
   if (isSummary(r)) return { workers: arr(r.workers), h: 0, nonDriver: [], manH: 0, special: 0, specialPer: 0, carL: 0, carFuel: '', genL: 0, genFuel: '' };
   const workers = arr(r.workers);
