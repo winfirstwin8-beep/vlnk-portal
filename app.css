@@ -58,6 +58,8 @@ a.item:active { background: var(--pri-bg); }
 .empty { color: var(--mute); text-align: center; padding: 14px 4px; margin: 0; }
 .note { background: var(--pri-bg); border-radius: 10px; padding: 10px 12px; margin: 0 0 12px; font-size: 14px; }
 .note.warn { background: var(--warn-bg); color: var(--warn); }
+.note.bad { background: var(--bad-bg); color: var(--bad); }
+.note a { color: inherit; text-decoration: underline; }
 .hello { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin: 2px 2px 12px; }
 .badge { display: inline-block; padding: 2px 8px; border-radius: 99px; font-size: 12px; font-weight: 600; background: var(--line); color: var(--ink); white-space: nowrap; }
 .badge.pri { background: var(--pri-bg); color: var(--pri); } .badge.ok { background: var(--ok-bg); color: var(--ok); }
