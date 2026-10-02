@@ -178,7 +178,7 @@ ROUTES.brigades = () => {
       ${fInp('Примітка', 'note', d.note, { ph: n === 5 ? 'форс-мажор / резерв' : '' })}
       <div class="form-actions"><button class="btn primary" type="submit">Зберегти бригаду ${n}</button></div></form>`);
   }
-  return page('Склад бригад', h, '#/tasks');
+  return page('Склад бригад', h, '#/plan');
 };
 FORMS.brig = async (d, id) => {
   const [m, n] = id.split(':');
@@ -188,12 +188,89 @@ FORMS.brig = async (d, id) => {
   delete UI.draft['brig:' + id]; UI.dirty = false; savedMsg('Бригаду ' + n + ' збережено'); render();
 };
 ACTS.copybrig = async () => {
-  const m = UI.bmonth, p = addMonths(m, -1);
+  const m = UI.bmonth || ym(today()), p = addMonths(m, -1);
   const src = all('Бригади').filter(b => b.month === p);
   if (!src.length) return toast('У попередньому місяці склад не задано');
-  for (const b of src) await save('Бригади', { month: m, num: b.num, members: arr(b.members), leaderId: b.leaderId, carId: b.carId, note: b.note });
+  if (all('Бригади').some(b => b.month === m && brigadeMembers(b).length) && !await ask(`Склад бригад на ${monthName(m)} уже задано. Замінити його складом з ${monthName(p)}?`, 'Замінити')) return;
+  for (const b of src) { const cur = brigadeOf(m, b.num) || {}; await save('Бригади', { ...cur, month: m, num: b.num, members: arr(b.members), leaderId: b.leaderId, carId: b.carId, note: b.note }); }
   savedMsg('Склад скопійовано'); render();
 };
+
+// ═════════ ПЛАНУВАННЯ ═════════
+/** Зауваження до складу бригади на місяць: сертифікати (зокрема РБ), водій, авто, відпустки. */
+function brigWarnings(m, n, b) {
+  const mem = brigadeMembers(b), end = monthEnd(m), out = [];
+  for (const id of mem) {
+    const nm = shortName(personName(id));
+    const cs = all('Сертифікати').filter(c => c.personId === id);
+    if (!cs.some(c => (CERT_ALIAS[c.method] || c.method) === 'Радіаційна безпека')) out.push(['bad', `${nm}: немає посвідчення РБ`]);
+    // за кожним методом — найсвіжіший сертифікат; попередити, якщо спливає до кінця місяця
+    const byM = {};
+    cs.forEach(c => { const k = CERT_ALIAS[c.method] || c.method; if (!byM[k] || String(c.validTo) > String(byM[k].validTo)) byM[k] = c; });
+    Object.entries(byM).forEach(([k, c]) => {
+      if (!c.validTo || c.validTo > end) return;
+      const what = k === 'Радіаційна безпека' ? 'посвідчення РБ' : 'сертифікат ' + k;
+      out.push([c.validTo < today() ? 'bad' : 'warn', `${nm}: ${what} ${c.validTo < today() ? 'прострочено ' : 'до '}${uaDate(c.validTo)}`]);
+    });
+    const vr = all('Відпустки').filter(v => v.personId === id).map(vacRange).filter(([a, z]) => a && a <= end && z >= m + '-01');
+    if (vr.length) out.push(['info', `🌴 ${nm}: відпустка ${vr.map(([a, z]) => uaDate(a).slice(0, 5) + '–' + uaDate(z).slice(0, 5)).join(', ')}`]);
+  }
+  if (mem.length && !mem.some(id => truthy((get('Персонал', id) || {}).isDriver))) out.push(['warn', 'у складі немає водія']);
+  if (mem.length && !(b && b.carId) && +n !== 5) out.push(['warn', 'не закріплено автомобіль']);
+  return out;
+}
+ROUTES.plan = () => {
+  const m = UI.bmonth || (UI.bmonth = ym(today()));
+  const lead = isLead(), t = today();
+  const nd = num(monthEnd(m).slice(8)), days = Array.from({ length: nd }, (_, i) => m + '-' + z2(i + 1));
+  let h = `<p class="small mute">Склад бригад на місяць і розподіл бригад по обʼєктах на вахту з обсягами робіт.</p>` + monthNav('bmonth', m);
+  if (lead) h += `<div class="row gap">${`<button class="btn primary" data-act="newshift" data-n="">+ Нова вахта</button>`}${`<button class="btn ghost" data-act="copybrig">Як у попередньому місяці</button>`}</div>`;
+  // ── бригади на місяць
+  const used = {};
+  BRIGADES.forEach(n => brigadeMembers(brigadeOf(m, n)).forEach(id => (used[id] = used[id] || []).push(n)));
+  const dup = Object.entries(used).filter(([, v]) => v.length > 1);
+  const free = staff().filter(p => !used[p.id]);
+  let bh = dup.length ? `<div class="note warn">Працівник у кількох бригадах: ${dup.map(([id, v]) => esc(shortName(personName(id))) + ' (' + v.join(', ') + ')').join('; ')}</div>` : '';
+  bh += '<div class="brgrid">' + BRIGADES.map(n => {
+    const b = brigadeOf(m, n), mem = brigadeMembers(b);
+    const ws = brigWarnings(m, n, b);
+    return `<div class="brcol${+n === 5 ? ' res' : ''}"><div class="row between"><b>${brName(n)}</b>${+n === 5 ? badge('резерв', 'warn') : ''}</div>
+      <p class="small mute">🚐 ${b && b.carId ? esc(carName(b.carId)) : '—'}${b && b.leaderId ? '<br>Старший: ' + esc(shortName(personName(b.leaderId))) : ''}</p>
+      <div class="chips">${mem.length ? mem.map(id => `<span class="chip${id === (b || {}).leaderId ? ' lead' : ''}">${esc(shortName(personName(id)))}${truthy((get('Персонал', id) || {}).isDriver) ? ' 🚐' : ''}</span>`).join('') : '<span class="small mute">склад не призначено</span>'}</div>
+      ${ws.length ? `<div class="brwarn">${ws.map(([c, x]) => `<div class="${c}">${esc(x)}</div>`).join('')}</div>` : ''}
+      ${lead ? `<a class="small" href="#/brigades">Змінити склад ›</a>` : ''}</div>`;
+  }).join('') + '</div>';
+  if (free.length) bh += `<p class="small mute">Не розподілені: ${free.map(p => esc(shortName(p.pib))).join(', ')}</p>`;
+  h += card('Бригади на місяць', bh, '<span class="small mute">працівник — лише в одній бригаді; Бригада 5 — резерв</span>');
+  // ── графік вахт
+  const tasks = all('Завдання').filter(x => taskStatus(x) !== 'перенесено' && String(x.dateFrom) <= monthEnd(m) && String(x.dateTo || x.dateFrom) >= m + '-01');
+  const col = d => num(d.slice(8)) + 1; // +1 — перша колонка з назвою бригади
+  let g = `<div class="gantt" style="--nd:${nd}"><div class="gh"></div>` + days.map(d => { const wd = new Date(d + 'T12:00:00').getDay(); return `<div class="gh${wd === 0 || wd === 6 ? ' we' : ''}${d === t ? ' td' : ''}">${num(d.slice(8))}</div>`; }).join('');
+  BRIGADES.forEach((n, ri) => {
+    const b = brigadeOf(m, n), row = ri + 2;
+    g += `<div class="gn" style="grid-row:${row}"><b>${n === 5 ? 'Бригада 5' : 'Бригада ' + n}</b>${b && b.carId ? `<small>${esc(carName(b.carId))}</small>` : ''}</div>`;
+    g += `<div class="gbg" style="grid-row:${row};grid-column:2/span ${nd}"></div>`;
+    if (t.slice(0, 7) === m) g += `<div class="gtoday" style="grid-row:${row};grid-column:${col(t)}"></div>`;
+    // відпустки членів бригади — жовта смужка знизу
+    const vd = new Set(); brigadeMembers(b).forEach(id => vacDaysIn(id, m + '-01', monthEnd(m)).forEach(x => vd.add(x)));
+    [...vd].forEach(d => { g += `<div class="gvac" style="grid-row:${row};grid-column:${col(d)}" title="відпустка члена бригади"></div>`; });
+    tasks.filter(x => String(x.brigade) === String(n)).forEach(x => {
+      const a = x.dateFrom < m + '-01' ? m + '-01' : x.dateFrom, z = (x.dateTo || x.dateFrom) > monthEnd(m) ? monthEnd(m) : (x.dateTo || x.dateFrom);
+      const done = (x.dateTo || x.dateFrom) < t || taskStatus(x) === 'виконано';
+      g += `<a class="gbar${done ? ' done' : ''}" style="grid-row:${row};grid-column:${col(a)}/${col(z) + 1}" href="${lead ? '#/taskform/' : '#/tobj/'}${esc(x.id)}" title="${esc(objShort(x.objectId))}: ${uaDate(x.dateFrom)}–${uaDate(x.dateTo)}">${esc(objShort(x.objectId))}</a>`;
+    });
+  });
+  g += '</div>';
+  h += card('Графік вахт', `<div class="gwrap">${g}</div><p class="small mute"><span class="lg l1"></span> заплановано / в роботі <span class="lg l2"></span> завершено <span class="lg l3"></span> відпустка члена бригади · натисніть на смугу, щоб відкрити завдання</p>`);
+  // ── вахти по бригадах з обсягами
+  h += card('Вахти за ' + monthName(m), BRIGADES.map(n => {
+    const ts = tasks.filter(x => String(x.brigade) === String(n)).sort((a, c) => String(a.dateFrom).localeCompare(String(c.dateFrom)));
+    if (!ts.length && !lead) return '';
+    return `<div class="row between"><b>${brName(n)}</b>${lead ? `<button class="btn small ghost" data-act="newshift" data-n="${n}">+ вахта</button>` : ''}</div>` + (ts.length ? ts.map(taskItem).join('') : '<p class="small mute">вахт немає</p>');
+  }).join(''));
+  return page('Планування', h, '#/menu');
+};
+ACTS.newshift = d => { UI.tmonth = UI.bmonth || ym(today()); go('#/taskform/new' + (d.n ? '/' + d.n : '')); };
 
 // ═════════ ЩОДЕННІ ЗВІТИ ═════════
 ROUTES.reports = () => {

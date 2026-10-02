@@ -473,7 +473,7 @@ ROUTES.menu = () => {
   const lead = isLead(), vis = isVisitor();
   const tiles = [
     ['#/objects', '🏗️', 'Обʼєкти', true],
-    ['#/brigades', '👥', 'Склад бригад', true],
+    ['#/plan', '🗓️', 'Планування', !vis],
     ['#/protocols', '🧾', 'Протоколи НК', true],
     ['#/staff', '🪪', 'Персонал', !vis],
     ['#/certs', '📜', 'Сертифікати НК', !vis],
