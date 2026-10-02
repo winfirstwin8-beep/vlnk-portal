@@ -267,3 +267,26 @@ fieldset.bq.bad { border-color: var(--bad); background: var(--bad-bg); }
 .tdates .td-n { flex-basis: 100%; font-weight: 600; font-size: 12.5px; color: var(--mute); }
 .objcard .objfull { margin: 6px 0 8px; }
 .objcard a.tel { font-weight: 600; white-space: nowrap; }
+/* Планування */
+.brgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; }
+.brcol { border: 1px solid var(--line); border-radius: 12px; padding: 10px; background: var(--bg); display: flex; flex-direction: column; gap: 6px; }
+.brcol.res { border-style: dashed; }
+.brcol p { margin: 0; }
+.chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.chip { background: var(--ink); color: var(--card); border-radius: 999px; padding: 3px 9px; font-size: 12px; font-weight: 600; }
+.chip.lead { outline: 2px solid var(--pri); outline-offset: 1px; }
+.brwarn { background: var(--warn-bg); border-radius: 8px; padding: 6px 8px; font-size: 12px; line-height: 1.35; }
+.brwarn .bad { color: var(--bad); } .brwarn .warn { color: var(--warn); } .brwarn .info { color: var(--ink); }
+.gwrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.gantt { display: grid; grid-template-columns: 96px repeat(var(--nd), minmax(20px, 1fr)); grid-auto-rows: minmax(34px, auto); min-width: 720px; position: relative; font-size: 12px; }
+.gantt .gh { text-align: center; color: var(--mute); font-weight: 600; padding: 4px 0; grid-row: 1; }
+.gantt .gh.we { color: var(--bad); } .gantt .gh.td { color: var(--pri); }
+.gantt .gn { grid-column: 1; display: flex; flex-direction: column; justify-content: center; line-height: 1.2; padding-right: 4px; }
+.gantt .gn small { color: var(--mute); font-size: 10px; }
+.gantt .gbg { border-top: 1px solid var(--line); }
+.gantt .gtoday { border-left: 2px solid var(--bad); z-index: 1; pointer-events: none; }
+.gantt .gvac { align-self: end; height: 5px; background: #d9a400; margin: 0 1px 2px; border-radius: 2px; }
+.gantt .gbar { align-self: center; margin: 0 1px; background: var(--pri); border-radius: 6px; padding: 4px 6px; font-weight: 600; font-size: 11px; color: var(--card); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-decoration: none; z-index: 2; }
+.gantt .gbar.done { background: #8a94a3; }
+.lg { display: inline-block; width: 10px; height: 10px; border-radius: 3px; vertical-align: -1px; margin: 0 3px 0 8px; }
+.lg.l1 { background: var(--pri); } .lg.l2 { background: #8a94a3; } .lg.l3 { background: #d9a400; }
