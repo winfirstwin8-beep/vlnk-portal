@@ -508,8 +508,8 @@ ROUTES.settings = () => {
   if (installPrompt) h += card('Застосунок', `<p>Встановіть портал на телефон — він відкриватиметься як звичайний застосунок і працюватиме без інтернету.</p><button class="btn primary" data-act="install">Встановити на телефон</button>`);
   else h += card('Встановлення на телефон', `<p class="small">Android (Chrome): меню ⋮ → «Додати на головний екран».<br>iPhone (Safari): «Поділитися» → «На екран Додому».</p>`);
   if (isLead()) {
-    const keys = [['labName', 'Назва підрозділу'], ['orgName', 'Назва підприємства'], ['headPosition', 'Посада керівника'], ['headName', 'ПІБ керівника (для підписів)'], ['rtNormHours', 'Запасна норма люд-год RT на 1 стик (якщо для діаметра немає норми)'], ['vacDaysDefault', 'Норма щорічної відпустки, календ. днів']];
-    h += card('Параметри лабораторії', form('settings', '', keys.map(([k, l]) => fInp(l, k, setting(k), ['rtNormHours', 'vacDaysDefault'].includes(k) ? { type: 'number', step: 'any', mode: 'decimal' } : {})).join('')));
+    const keys = [['labName', 'Назва підрозділу'], ['orgName', 'Назва підприємства'], ['headPosition', 'Посада керівника'], ['headName', 'ПІБ керівника (для підписів)'], ['rtNormHours', 'Запасна норма люд-год RT на 1 стик (якщо для діаметра немає норми)'], ['vacDaysDefault', 'Норма щорічної відпустки, календ. днів'], ['baseName', 'Населений пункт бази (для СЗ, напр. «с. Юрівка»)'], ['docsEmail', 'Email для СЗ і відомостей на вахту'], ['lodgingPrice', 'Вартість проживання за замовчуванням, грн/добу']];
+    h += card('Параметри лабораторії', form('settings', '', keys.map(([k, l]) => fInp(l, k, setting(k), ['rtNormHours', 'vacDaysDefault', 'lodgingPrice'].includes(k) ? { type: 'number', step: 'any', mode: 'decimal' } : {})).join('')));
   }
   h += card('', `<button class="btn danger wide" data-act="logout">${MODE === 'demo' ? 'Вийти з демо' : 'Вийти'}</button><p class="mute small center">Портал ВЛНК · версія ${VER}</p>`);
   return page('Налаштування', h, '#/menu');

@@ -1,7 +1,7 @@
 /* Портал ВЛНК — демо-дані (вигадані), лише для ознайомлення без сервера */
 'use strict';
 
-const DEMO_VER = '1.8.30'; // змінювати, коли змінюються демо-дані
+const DEMO_VER = '1.8.34'; // змінювати, коли змінюються демо-дані
 const DEMO_USER = { email: 'demo@vlnk.local', name: 'Гончаренко О.В. (демо)', personId: 'p1', role: 'керівник' };
 
 async function seedDemo() {
@@ -29,7 +29,7 @@ async function seedDemo() {
     ['p11', 'Марченко Василь Григорович', 'Дефектоскопіст з ультразвукового контролю 5 р.', 'працівник', true],
     ['p12', 'Коваль Тарас Богданович', 'Дефектоскопіст з візуально-оптичного контролю 5 р.', 'працівник', false]
   ];
-  people.forEach(([id, pib, posada, role, drv], i) => add('Персонал', {
+  people.forEach(([id, pib, posada, role, drv], i) => add('Персонал', { tabNo: i % 4 === 3 ? '' : String(70005000 + i * 137), profSince: (2004 + i) + '-0' + (1 + i % 9) + '-15', emailCorp: i ? 'worker' + (i + 1) + '@tsoua.com' : 'manzya@tsoua.com', ...(i === 9 ? { absence: 'ЗСУ', absenceFrom: '2025-03-01' } : i === 12 ? { absence: 'лікарняний', absenceFrom: plusDays(-3), absenceTo: plusDays(4) } : i === 5 ? { absence: 'навчання', absenceFrom: plusDays(-1), absenceTo: plusDays(10) } : {}),
     id, pib, posada, role, email: id === 'p1' ? DEMO_USER.email : `worker${i + 1}@example.com`, phone: '+380 67 000 00 ' + z2(i + 10),
     isDriver: drv, schedule: i % 4 === 3 ? '11' : '8', driverLicense: drv ? 'B, C' : '', licenseTo: drv ? (i === 6 ? plusDays(40) : '2029-05-01') : '',
     carAccess: drv ? ['c1', 'c2', 'c3', 'c4'] : [], hireDate: (2012 + (i * 3) % 13) + '-' + z2(1 + (i * 5) % 12) + '-' + z2(1 + (i * 7) % 27),
@@ -105,7 +105,7 @@ async function seedDemo() {
   objs.forEach(([id, short, name, lvumg, icp, dia, len, film, dev, fix, settl], i) => {
     const monthly = {};
     for (let k = -2; k <= 3; k++) monthly[addMonths(m, k)] = Math.round(len / 8);
-    add('Обʼєкти', { id, short, name, lvumg, icp, diameter: dia, length: len, plan2026: Math.round(len * 0.6), plan2027: Math.round(len * 0.4), start2026: Y + '-0' + (3 + i % 6) + '-01', filmPlan: film, devPlan: dev, fixPlan: fix, settlement: settl, site: 'Лінійна частина', contact: ['Петренко Іван Іванович', 'Коваленко Олег Петрович', 'Шевчук Андрій Миколайович'][i % 3], contactPos: ['Начальник дільниці ЛВУМГ', 'Виконавець робіт', 'Інженер з технагляду'][i % 3], soOrder: '4' + (1000000 + i * 7919), soSubOrder: '2' + (500000 + i * 313), hotel: HOTELS[i % HOTELS.length], lat: (48.3 + i * 0.37).toFixed(4), lng: (25.5 + i * 1.3).toFixed(4), monthly: JSON.stringify(monthly), status: 'в роботі', methods: ['RT', 'VT-W', 'UT-W', 'UTT'], workTypes: ['Монтажна колона', 'Ізоляційна колона'] });
+    add('Обʼєкти', { id, short, name, lvumg, icp, diameter: dia, length: len, plan2026: Math.round(len * 0.6), plan2027: Math.round(len * 0.4), start2026: Y + '-0' + (3 + i % 6) + '-01', filmPlan: film, devPlan: dev, fixPlan: fix, settlement: settl, site: 'Лінійна частина', distBase: String(180 + i * 70), distObj: i % 3 === 2 ? '' : String(15 + i * 5), travelTime: i % 3 === 2 ? '' : (2 + i % 6) + ' год. ' + String((i * 10) % 60).padStart(2, '0') + ' хв.', contact: ['Петренко Іван Іванович', 'Коваленко Олег Петрович', 'Шевчук Андрій Миколайович'][i % 3], contactPos: ['Начальник дільниці ЛВУМГ', 'Виконавець робіт', 'Інженер з технагляду'][i % 3], soOrder: '4' + (1000000 + i * 7919), soSubOrder: '2' + (500000 + i * 313), hotel: HOTELS[i % HOTELS.length], lat: (48.3 + i * 0.37).toFixed(4), lng: (25.5 + i * 1.3).toFixed(4), monthly: JSON.stringify(monthly), status: 'в роботі', methods: ['RT', 'VT-W', 'UT-W', 'UTT'], workTypes: ['Монтажна колона', 'Ізоляційна колона'] });
   });
 
   // відповідальні від замовника (роль «відвідувач» — лише перегляд)

@@ -272,7 +272,7 @@ ROUTES.tobj = tid => {
   let h = `<div class="objhead"><h2>${esc(o.short || '')}</h2><p>${esc(o.name || '')}</p></div>`;
   h += card('Паспорт обʼєкта', kv([
     ['Статус', esc(o.status)], ['ЛВУМГ', esc(o.lvumg)], ['Промисловий майданчик', esc(o.site)], ['Населений пункт', esc(o.settlement)],
-    ['Відповідальний від замовника', respText(o)], ['Посада відповідального', esc(o.contactPos || (objResp(o) || {}).posada || '')], ['Автомобіль', objCarText(o)], ['Координати', coords],
+    ['Відповідальний від замовника', respText(o)], ['Посада відповідального', esc(o.contactPos || (objResp(o) || {}).posada || '')], ['Автомобіль', objCarText(o)], ['Дорога', [o.distBase ? 'від бази ' + esc(o.distBase) + ' км' : '', o.distObj ? 'до обʼєкта ' + esc(o.distObj) + ' км' : '', o.travelTime ? 'у дорозі ' + esc(o.travelTime) : ''].filter(Boolean).join(' · ')], ['Координати', coords],
     ['СО/ТОРО замовлення', esc(o.soOrder)], ['СО/ТОРО підзамовлення', esc(o.soSubOrder)], ['Пропонований готель', esc(o.hotel)],
     ['Діаметр', o.diameter ? 'Ø ' + esc(o.diameter) + ' мм' : ''], ['Довжина ділянок ремонту', len ? fmtN(len) + ' м' : ''],
     ['Види робіт', esc(arr(o.workTypes).join(', '))], ['Методи НК', esc(methodsOf(o.methods).join(', '))], ['Примітка', esc(o.note)]
@@ -306,7 +306,7 @@ ROUTES.object = id => {
   let h = `<div class="objhead"><h2>${esc(o.short || '')}</h2><p>${esc(o.name || '')}</p></div>`;
   h += card('Паспорт обʼєкта', kv([
     ['Статус', esc(o.status)], ['ЛВУМГ', esc(o.lvumg)], ['Промисловий майданчик', esc(o.site)], ['Населений пункт', esc(o.settlement)],
-    ['Відповідальний від замовника', respText(o)], ['Посада відповідального', esc(o.contactPos || (objResp(o) || {}).posada || '')], ['Автомобіль', objCarText(o)], ['Координати', coords],
+    ['Відповідальний від замовника', respText(o)], ['Посада відповідального', esc(o.contactPos || (objResp(o) || {}).posada || '')], ['Автомобіль', objCarText(o)], ['Дорога', [o.distBase ? 'від бази ' + esc(o.distBase) + ' км' : '', o.distObj ? 'до обʼєкта ' + esc(o.distObj) + ' км' : '', o.travelTime ? 'у дорозі ' + esc(o.travelTime) : ''].filter(Boolean).join(' · ')], ['Координати', coords],
     ['СО/ТОРО замовлення', esc(o.soOrder)], ['СО/ТОРО підзамовлення', esc(o.soSubOrder)], ['ICP', esc(o.icp)], ['Пропонований готель', esc(o.hotel)],
     ['Діаметр', o.diameter ? 'Ø ' + esc(o.diameter) + ' мм' : ''], ['Довжина ділянок ремонту', len ? fmtN(len) + ' м' : ''],
     ['Види робіт', esc(arr(o.workTypes).join(', '))], ['Методи НК', esc(methodsOf(o.methods).join(', '))], ['Примітка', esc(o.note)]
@@ -364,6 +364,7 @@ ROUTES.objform = (id = 'new') => {
      <fieldset class="f"><legend>Відповідальний від замовника</legend><div class="grid2">${fInp('ПІБ', 'contact', d.contact, { list: 'resplist', hint: visitors().length ? 'оберіть зі списку «Відповідальні від замовника» або впишіть' : '' })}${fInp('Посада', 'contactPos', d.contactPos)}</div>
        ${fInp('Телефон', 'contactPhone', d.contactPhone, { type: 'tel', ph: '+380…', hint: objResp(d) && objResp(d).phone && !d.contactPhone ? 'якщо не вказати — з картки відповідального: ' + objResp(d).phone : '' })}
        <datalist id="resplist">${visitors().map(p => `<option value="${esc(p.pib)}">${esc(p.posada || '')}</option>`).join('')}</datalist></fieldset>
+     <fieldset class="f"><legend>Дорога (для службової записки)</legend><div class="grid3">${fInp('Від бази до місця проживання, км', 'distBase', d.distBase, { mode: 'decimal' })}${fInp('Від місця проживання до обʼєкта, км', 'distObj', d.distObj, { mode: 'decimal' })}${fInp('Час у дорозі', 'travelTime', d.travelTime, { ph: '7 год. 50 хв.' })}</div></fieldset>
      ${fSel('Автомобіль', 'carId', carOpts(), d.carId, { none: 'авто бригади — за завданням' })}
      <div class="grid2">${fInp('Широта N', 'lat', d.lat, { mode: 'decimal' })}${fInp('Довгота E', 'lng', d.lng, { mode: 'decimal' })}</div>
      <div class="grid2">${fInp('СО/ТОРО замовлення', 'soOrder', d.soOrder)}${fInp('СО/ТОРО підзамовлення', 'soSubOrder', d.soSubOrder)}</div>
@@ -398,13 +399,34 @@ ROUTES.staff = () => {
   const nv = visitors().length;
   let h = `<div class="row gap"><a class="btn ghost" href="#/certs">Сертифікати</a><a class="btn ghost" href="#/ackmatrix">Ознайомлення</a>${isLead() ? `<a class="btn ghost" href="#/visitors">Відповідальні від замовника${nv ? ' · ' + nv : ''}</a>` : ''}${isLead() && hiddenPeople().length ? `<a class="btn ghost" href="#/hiddenstaff">Приховані · ${hiddenPeople().length}</a>` : ''}</div>`;
   if (isLead()) h += fab('#/personform/new');
-  h += staff().map(p => `<a class="item" href="#/person/${esc(p.id)}">
-    <div class="row between"><b>${esc(p.pib)}</b>${bOf[p.id] ? badge('Б' + bOf[p.id], 'pri') : ''}</div>
+  const st = staff(), stOf = {}; st.forEach(p => (stOf[p.id] = personState(p)));
+  const cnt = k => st.filter(p => stOf[p.id] === k).length;
+  const work = st.filter(p => !stOf[p.id]).length;
+  const f = UI.sfilt || '';
+  h += `<div class="kpis staffkpi">${[['', 'Усього', st.length], ['work', 'На роботі', work], ['відпустка', '🌴 У відпустці', cnt('відпустка')], ['лікарняний', '🤒 На лікарняному', cnt('лікарняний')], ['ЗСУ', '🎖 В ЗСУ', cnt('ЗСУ')], ['навчання', '🎓 На навчанні', cnt('навчання')]]
+    .map(([k, l, n]) => `<button type="button" class="kpi${f === k ? ' on' : ''}" data-act="sfilt" data-k="${esc(k)}"><b>${n}</b><span>${l}</span></button>`).join('')}</div>`;
+  if (isLead()) h += `<button class="btn ghost small" data-act="importold">⬇ Табельні номери, дати й пошта з попереднього порталу</button>`;
+  const list = f === 'work' ? st.filter(p => !stOf[p.id]) : f ? st.filter(p => stOf[p.id] === f) : st;
+  h += list.map(p => `<a class="item" href="#/person/${esc(p.id)}">
+    <div class="row between"><b>${esc(p.pib)}</b><span>${stOf[p.id] ? badge(esc(STATE_LABEL[stOf[p.id]] || stOf[p.id]), 'warn') + ' ' : ''}${bOf[p.id] ? badge('Б' + bOf[p.id], 'pri') : ''}</span></div>
     <span class="small mute">${esc(p.posada || '')}${p.role && p.role !== 'працівник' ? ' · ' + esc(roleName(p.role)) : ''}</span>
-    <span class="small">${certState(p.id)} ${truthy(p.isDriver) ? badge('🚐 водій') : ''} ${p.schedule === '11' ? badge('11 год') : ''}</span></a>`).join('') || empty('Персонал не внесено');
+    <span class="small">${certState(p.id)} ${truthy(p.isDriver) ? badge('🚐 водій') : ''} ${p.schedule === '11' ? badge('11 год') : ''}</span></a>`).join('') || empty(f ? 'Немає працівників у цій категорії' : 'Персонал не внесено');
   return page('Персонал', h, '#/menu');
 };
 /** Приховані записи (вакансії, службовий обліковий запис) — лише для керівника, щоб їх можна було відредагувати. */
+ACTS.sfilt = d => { UI.sfilt = UI.sfilt === d.k ? '' : d.k; render(); };
+ACTS.importold = async () => {
+  if (MODE === 'demo') return toast('У демо дані попереднього порталу недоступні');
+  if (!navigator.onLine) return toast('Потрібен інтернет');
+  if (!await ask('Підтягнути з попереднього порталу табельні номери, дати працевлаштування й роботи за фахом, корпоративну пошту та відсутність (ЗСУ / лікарняний / навчання)? Заповнюються лише порожні поля.', 'Підтягнути')) return;
+  toast('Читаю дані попереднього порталу…');
+  const r = await api({ action: 'importold' }, 120000).catch(e => ({ ok: false, error: e.message }));
+  if (!r.ok) return toast('Не вдалося: ' + (r.error === 'Невідома дія' ? 'оновіть серверну частину порталу' : r.error));
+  for (const u of r.rows || []) { const p = get('Персонал', u.id); if (p) await applyLocal('Персонал', { ...p, ...u }); }
+  const f = r.found || {};
+  await ask(`Оновлено працівників: ${(r.rows || []).length}\n\nТабельних номерів: ${f.tabNo || 0}\nДат працевлаштування: ${f.hireDate || 0}\nДат роботи за фахом: ${f.profSince || 0}\nКорпоративних пошт: ${f.emailCorp || 0}\nВідміток відсутності: ${f.absence || 0}${(r.columns || []).includes('prof') ? '' : '\n\nУ старому порталі немає колонки «працює за фахом» — цю дату внесіть вручну.'}`, 'Гаразд', 'Закрити');
+  render();
+};
 ROUTES.hiddenstaff = () => {
   if (!isLead()) return denied();
   const list = hiddenPeople();
@@ -431,11 +453,15 @@ ROUTES.person = id => {
   const lead = isLead();
   const vis = p.role === 'відвідувач';
   let h = card(esc(p.pib), kv([
-    ['Посада', esc(p.posada)], ['Роль у порталі', esc(roleName(p.role))], ['Email', esc(p.email)],
+    ['Посада', esc(p.posada)], ...(vis ? [] : [['Табельний номер', esc(p.tabNo || '')]]),
+    ...(vis ? [] : [['Стан', personState(p) ? `<b class="warn">${esc(STATE_LABEL[personState(p)] || personState(p))}</b>${p.absence === personState(p) && (p.absenceFrom || p.absenceTo) ? ` <span class="small mute">${p.absenceFrom ? 'з ' + uaDate(p.absenceFrom) : ''}${p.absenceTo ? ' до ' + uaDate(p.absenceTo) : ''}</span>` : ''}` : '<span class="ok">на роботі</span>']]),
+    ['Роль у порталі', esc(roleName(p.role))], ['Email (вхід)', esc(p.email)], ['Корпоративна пошта', p.emailCorp ? `<a href="mailto:${esc(p.emailCorp)}">${esc(p.emailCorp)}</a>` : ''],
     ['Телефон', p.phone ? `<a href="tel:${esc(p.phone)}">${esc(p.phone)}</a>` : ''],
     ...(vis ? [] : [['Графік', p.schedule === '11' ? '11 год (07:00–19:00)' : '8 год (08:00–17:00)'],
       ['Водій', truthy(p.isDriver) ? 'так' : ''], ['Посвідчення водія', esc(p.driverLicense) + (p.licenseTo ? ' · ' + validity(p.licenseTo).text : '')],
-      ['Допуск до авто', arr(p.carAccess).map(c => esc(carName(c))).join(', ')]]),
+      ['Допуск до авто', arr(p.carAccess).map(c => esc(carName(c))).join(', ')],
+      ['Працевлаштований', p.hireDate ? uaDate(p.hireDate) : ''], ['Стаж на підприємстві', esc(seniority(p.hireDate))],
+      ['Працює за фахом з', p.profSince ? uaDate(p.profSince) : ''], ['Стаж за професією', esc(seniority(p.profSince))]]),
     ['Примітка', esc(p.note)]
   ]) + (lead ? `<a class="btn ghost" href="#/personform/${esc(id)}">Редагувати</a>` : '') + (p.role === 'відвідувач' ? '<p class="small mute">Відповідальний від замовника — не входить до персоналу лабораторії, має доступ лише на перегляд.</p>' : ''));
   if (p.role === 'відвідувач') {
@@ -454,11 +480,11 @@ ROUTES.person = id => {
   const eq = all('Обладнання').filter(e => e.holderType === 'працівник' && e.holderId === id);
   const Yv = today().slice(0, 4);
   const vs = vacSummary(id, Yv);
-  h += card('Відпустка · ' + Yv, vacChips(vs) + (vs.parts.length ? vs.parts.map(vacLine).join('') : empty('Не заплановано')) + (p.hireDate ? `<p class="small mute">Прийнятий на роботу ${uaDate(p.hireDate)}</p>` : ''),
+  h += card('Відпустка · ' + Yv, vacChips(vs) + (vs.parts.length ? vs.parts.map(vacLine).join('') : empty('Не заплановано')),
     `<a class="small" href="#/vac">Графік ›</a>`);
   h += card('Обладнання на руках', eq.length ? eq.map(e => `<div class="item"><b>${esc(e.name)}</b><span class="small mute">інв. ${esc(e.invNo || '—')} · ${esc(e.condition || '')}</span></div>`).join('') : empty('Немає'));
   const pp = ppeOf(id);
-  if (pp.length || p.clothSize || p.shoeSize) h += card('ЗІЗ', `<p class="small">${sizesLine(p)}</p><p>${ppeCounts(pp)}</p>` + pp.filter(x => x.st.cls !== 'ok').map(x => ppeRow(x, id)).join(''),
+  if (pp.length || p.clothSize || p.shoeSize) h += card('ЗІЗ', `<details class="fold"><summary><span>${ppeCounts(pp)}</span><span class="small mute">детальніше</span></summary><p class="small">${sizesLine(p)}</p>` + (pp.filter(x => x.st.cls !== 'ok').map(x => ppeRow(x, id)).join('') || '<p class="small mute">Усі ЗІЗ в нормі</p>') + '</details>',
     isLead() ? `<a class="small" href="#/ppeissue/${esc(id)}">Видати ›</a>` : `<a class="small" href="#/ppe">ЗІЗ ›</a>`);
   return page(p.role === 'відвідувач' ? 'Відповідальний від замовника' : 'Працівник', h, p.role === 'відвідувач' ? '#/visitors' : '#/staff');
 };
@@ -469,13 +495,16 @@ ROUTES.personform = (id = 'new', kind) => {
   if (id !== 'new' && !src) return notFound();
   const d = UI.draft['person:' + id] || src || { role: kind === 'visitor' ? 'відвідувач' : 'працівник', schedule: '8' };
   const vis0 = d.role === 'відвідувач';
-  const body = fInp('ПІБ', 'pib', d.pib, { req: true, ph: 'Прізвище Імʼя По батькові' }) + fInp('Посада', 'posada', d.posada) +
+  const body = fInp('ПІБ', 'pib', d.pib, { req: true, ph: 'Прізвище Імʼя По батькові' }) + (vis0 ? fInp('Посада', 'posada', d.posada) : `<div class="grid2">${fInp('Посада', 'posada', d.posada)}${fInp('Табельний номер', 'tabNo', d.tabNo, { mode: 'numeric' })}</div>`) +
     `<div class="grid2">${fInp('Email (для входу)', 'email', d.email, { type: 'email', hint: 'без email увійти в портал не можна' })}${fInp('Телефон', 'phone', d.phone, { type: 'tel' })}</div>
+     ${vis0 ? '' : fInp('Корпоративна пошта', 'emailCorp', d.emailCorp, { type: 'email', ph: 'name@tsoua.com' })}
      <div class="grid2">${fSel('Роль у порталі', 'role', ROLE_OPTS, d.role, { re: true })}${fInp('PIN для входу', 'pin', '', { mode: 'numeric', ph: src ? 'не змінювати' : '4–6 цифр' })}</div>` +
     // для відповідальних від замовника — лише ПІБ, посада, контакти, роль і примітка
     (vis0 ? fArea('Примітка', 'note', d.note, { rows: 2 }) : `
      ${fSel('Графік роботи', 'schedule', [['8', '8 год (08:00–17:00)'], ['11', '11 год (07:00–19:00)']], d.schedule)}
-     <div class="grid2">${fInp('Дата прийняття на роботу', 'hireDate', d.hireDate, { type: 'date' })}${fNum('Норма відпустки, днів', 'vacDays', d.vacDays, { ph: setting('vacDaysDefault', '24') })}</div>
+     <div class="grid2">${fInp('Працевлаштований (дата прийняття на роботу)', 'hireDate', d.hireDate, { type: 'date' })}${fInp('Працює за фахом з', 'profSince', d.profSince, { type: 'date', hint: 'дата, з якої працює за професією' })}</div>
+     ${fNum('Норма відпустки, днів', 'vacDays', d.vacDays, { ph: setting('vacDaysDefault', '24') })}
+     <fieldset class="f"><legend>Відсутність (лікарняний, ЗСУ, навчання)</legend><div class="grid3">${fSel('Причина', 'absence', ABSENCES, d.absence, { none: '— на роботі —' })}${fInp('З', 'absenceFrom', d.absenceFrom, { type: 'date' })}${fInp('По', 'absenceTo', d.absenceTo, { type: 'date', hint: 'порожньо — до зміни' })}</div><small class="mute">Щорічні відпустки за графіком враховуються автоматично.</small></fieldset>
      ${fChk('Водій службового авто', 'isDriver', d.isDriver)}
      <div class="grid2">${fInp('Посвідчення водія (категорії)', 'driverLicense', d.driverLicense)}${fInp('Дійсне до', 'licenseTo', d.licenseTo, { type: 'date' })}</div>
      ${fMulti('Допуск до авто', 'carAccess', carOpts(), d.carAccess)}

@@ -1,11 +1,13 @@
 /* Портал ВЛНК — ядро: утиліти, локальна база (IndexedDB), синхронізація, розрахунки */
 'use strict';
 
-const VER = '1.8.32';
+const VER = '1.8.34';
 /** Мінімальна версія серверного коду (Code.gs), з якою працює цей застосунок. */
 const NEED_API = '1.8.18';
 /** Що нового — показується один раз після оновлення (коротко, для працівників). */
 const CHANGES = {
+  '1.8.34': ['Персонал: лічильники «на роботі, у відпустці, на лікарняному, в ЗСУ, на навчанні» з фільтром', 'Картка працівника: працевлаштований, працює за фахом з, стаж на підприємстві й за професією, корпоративна пошта, відсутність; ЗІЗ згорнуто', 'Табельні номери й дати — з попереднього порталу (кнопка на сторінці «Персонал»)'],
+  '1.8.33': ['Планування → «Вахти за місяць»: у кожної вахти — період, кількість обʼєктів, стан СЗ і відомості та кнопка «Сформувати СЗ і відомість» (2 документи за шаблонами, надсилаються на email)', 'Персонал: табельний номер; Обʼєкти: відстані й час у дорозі для СЗ', 'Виправлено вигляд кнопок вибору складу після 1.8.32'],
   '1.8.32': ['Ще → «Планування»: склад бригад на місяць із зауваженнями (сертифікати, РБ, водій, авто, відпустки), графік вахт і вахти з обсягами', 'Розділ «Склад бригад» прибрано з меню — змінити склад можна з «Планування»'],
   '1.8.31': ['Завдання: у картці завдання перед наказом — повна назва обʼєкта, відповідальний від замовника та його телефон', 'Обʼєкти: поле «Телефон» відповідального від замовника'],
   '1.8.30': ['Картка працівника: скан сертифіката НК (PDF або фото) — додати, завантажити, надіслати на пошту, поділитися', 'Картка працівника: «Обладнання на руках» — між «Відпусткою» та «ЗІЗ»'],
@@ -99,6 +101,31 @@ const normName = s => String(s || '').toLowerCase().replace(/[^a-zа-яіїєґ]
 function objResp(o) {
   const k = normName(o && o.contact); if (!k) return null;
   return all('Персонал').find(p => p.role === 'відвідувач' && normName(p.pib) && (normName(p.pib) === k || normName(shortName(p.pib)) === k)) || null;
+}
+/**
+ * Вахти бригади в місяці: завдання групуються за половиною місяця (1–15 і 16–кінець) за датою початку
+ * (завдання, що почалися в попередньому місяці, — у першу половину). Період вахти — від найранішого початку до найпізнішого кінця.
+ */
+function brigShifts(m, n) {
+  const a = m + '-01', z = monthEnd(m);
+  const ts = all('Завдання').filter(t => String(t.brigade) === String(n) && taskStatus(t) !== 'перенесено' && t.dateFrom && String(t.dateFrom) <= z && String(t.dateTo || t.dateFrom) >= a)
+    .sort((x, y) => String(x.dateFrom).localeCompare(String(y.dateFrom)));
+  const g = {};
+  ts.forEach(t => { const h = t.dateFrom < a || +t.dateFrom.slice(8) <= 15 ? 1 : 2; (g[h] = g[h] || []).push(t); });
+  return Object.keys(g).sort().map(h => {
+    const list = g[h];
+    const from = list.map(t => t.dateFrom).sort()[0], to = list.map(t => t.dateTo || t.dateFrom).sort().slice(-1)[0];
+    const objs = [...new Set(list.map(t => t.objectId))];
+    return { brigade: String(n), from, to, tasks: list, objects: objs };
+  });
+}
+/** Сформовані СЗ і відомість для вахти: точний збіг періоду, інакше — документ на період, що перетинається (період змінився). */
+function shiftDoc(s) {
+  const ds = all('ДокументиВахт').filter(d => String(d.brigade) === String(s.brigade)).sort((x, y) => num(y.sentAt) - num(x.sentAt));
+  const exact = ds.find(d => d.dateFrom === s.from && d.dateTo === s.to);
+  if (exact) return { doc: exact, exact: true };
+  const ov = ds.find(d => d.dateFrom <= s.to && d.dateTo >= s.from);
+  return ov ? { doc: ov, exact: false } : null;
 }
 /** Телефон відповідального: з картки обʼєкта, інакше — з картки відповідального від замовника. */
 const respPhone = o => String((o && o.contactPhone) || (objResp(o) || {}).phone || '').trim();
@@ -582,6 +609,8 @@ function carFuelParts(r, car) {
 /** Розрахунок по одному щоденному звіту. */
 /** Підсумковий запис за період (перенесений з шаблону «ВиконаноЗПочаткуРоку»): лише обсяги й матеріали, без годин, пального й табелю. */
 const isSummary = r => truthy(r.summary);
+/** Відмінювання: plural(2, 'доба', 'доби', 'діб'). */
+const plural = (n, a, b, c) => { const m10 = n % 10, m100 = n % 100; return m10 === 1 && m100 !== 11 ? a : m10 >= 2 && m10 <= 4 && (m100 < 10 || m100 >= 20) ? b : c; };
 
 // ───────── хто подав звіт і повторні звіти ─────────
 const personByEmail = e => { e = String(e || '').toLowerCase(); return e ? all('Персонал').find(p => String(p.email || '').toLowerCase() === e) : null; };
@@ -701,6 +730,22 @@ function vacsOf(pid, year) {
   return all('Відпустки').filter(v => v.personId === pid && (!year || String(v.year) === String(year)))
     .sort((a, b) => String(a.year).localeCompare(String(b.year)) || num(a.part) - num(b.part) || String(vacRange(a)[0]).localeCompare(String(vacRange(b)[0])));
 }
+/** Стаж від дати до сьогодні: «5 р. 3 міс.». */
+function seniority(from, to = today()) {
+  if (!from || from > to) return '';
+  const [y1, m1, d1] = from.split('-').map(Number), [y2, m2, d2] = to.split('-').map(Number);
+  let mo = (y2 - y1) * 12 + (m2 - m1) - (d2 < d1 ? 1 : 0); if (mo < 0) return '';
+  const y = Math.floor(mo / 12), m = mo % 12;
+  return [y ? y + ' р.' : '', m || !y ? m + ' міс.' : ''].filter(Boolean).join(' ');
+}
+const ABSENCES = ['лікарняний', 'ЗСУ', 'навчання', 'відпустка'];
+/** Стан працівника на дату: відпустка (за графіком або відміткою), лікарняний, ЗСУ, навчання; '' — на роботі. */
+function personState(p, d = today()) {
+  if (!p) return '';
+  if (p.absence && (!p.absenceFrom || p.absenceFrom <= d) && (!p.absenceTo || p.absenceTo >= d)) return p.absence;
+  return onVacation(p.id, d) ? 'відпустка' : '';
+}
+const STATE_LABEL = { 'відпустка': '🌴 у відпустці', 'лікарняний': '🤒 на лікарняному', 'ЗСУ': '🎖 в ЗСУ', 'навчання': '🎓 на навчанні' };
 function onVacation(pid, d) { return all('Відпустки').find(v => v.personId === pid && (() => { const [a, b] = vacRange(v); return a && a <= d && d <= b; })()) || null; }
 /** Дні відпустки людини, що припадають на період [a, b]. */
 function vacDaysIn(pid, a, b) {
