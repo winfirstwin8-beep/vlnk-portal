@@ -226,16 +226,23 @@ ROUTES.objects = () => {
   const facts = factByObject();
   const lvs = [...new Set(all('Обʼєкти').map(o => o.lvumg).filter(Boolean))].sort();
   let list = objectsSorted().filter(o => (!lv || o.lvumg === lv) && (!q || [o.short, o.name, o.icp, o.soOrder, o.settlement].join(' ').toLowerCase().includes(q)));
+  // активні — є завдання (крім перенесених) або звіти за поточний рік; RT — де проводився рентгенконтроль
+  const Y = today().slice(0, 4);
+  const actv = new Set([...all('Завдання').filter(t => taskStatus(t) !== 'перенесено').map(t => t.objectId), ...all('Звіти').filter(r => String(r.date).slice(0, 4) === Y).map(r => r.objectId)]);
+  const rtSet = new Set(Object.keys(facts).filter(id => num(facts[id].rt) > 0));
   if (UI.oact === '1') list = list.filter(o => act.has(o.id));
+  if (UI.oact === 'a') list = list.filter(o => actv.has(o.id));
+  if (UI.oact === 'rt') list = list.filter(o => rtSet.has(o.id));
   list.sort((a, b) => (act.has(b.id) ? 1 : 0) - (act.has(a.id) ? 1 : 0));
   let h = `<input class="search" type="search" placeholder="Пошук: назва, ICP, замовлення…" value="${esc(UI.oq || '')}" data-set="oq">
     <div class="filters">${fSel('ЛВУМГ', 'x', lvs, lv, { none: 'Усі ЛВУМГ' }).replace('name="x"', 'data-set="olv"')}</div>
-    ${seg('oact', [['', 'Усі ' + all('Обʼєкти').length], ['1', 'В роботі цього місяця']], UI.oact || '')}`;
+    ${seg('oact', [['', 'Усі ' + all('Обʼєкти').length], ['1', 'В роботі цього місяця · ' + all('Обʼєкти').filter(o => act.has(o.id)).length], ['a', 'Активні · ' + all('Обʼєкти').filter(o => actv.has(o.id)).length], ['rt', 'RT · ' + all('Обʼєкти').filter(o => rtSet.has(o.id)).length]], UI.oact || '').replace('class="seg"', 'class="seg wrap"')}
+    ${UI.oact === 'a' ? `<p class="small mute">Активні — обʼєкти із завданнями (крім перенесених) або звітами за ${Y} рік.</p>` : UI.oact === 'rt' ? '<p class="small mute">Обʼєкти, де за звітами проводився рентгенконтроль (RT).</p>' : ''}`;
   if (isLead()) h += fab('#/objform/new');
   h += list.slice(0, UI.limit).map(o => {
     const len = num(o.length); const f = facts[o.id];
     return `<a class="item" href="#/object/${esc(o.id)}">
-      <div class="row between"><b>${esc(o.short || o.name)}</b>${act.has(o.id) ? badge('в роботі', 'pri') : (o.status ? badge(esc(o.status)) : '')}</div>
+      <div class="row between"><b>${esc(o.short || o.name)}</b><span>${rtSet.has(o.id) ? badge('RT', 'ok') + ' ' : ''}${act.has(o.id) ? badge('в роботі', 'pri') : (o.status ? badge(esc(o.status)) : '')}</span></div>
       <span class="small mute clamp">${esc(o.name || '')}</span>
       <span class="small">${o.lvumg ? esc(o.lvumg) + ' ЛВУМГ · ' : ''}${o.diameter ? 'Ø' + esc(o.diameter) + ' · ' : ''}${len ? fmtN(len) + ' м' : ''}</span>
       ${objMeta(o)}
