@@ -557,6 +557,15 @@ function volAct(fn) {
 }
 ACTS.voladd = () => volAct(d => d.vol.push({ d: '' }));
 ACTS.voldel = ds => volAct(d => d.vol.splice(Number(ds.i), 1));
+/** Чи змінено в редагованому звіті дату, бригаду, обʼєкт або характер (переїзд). */
+const moved_ = (src, d) => src.date !== d.date || src.objectId !== d.objectId || String(src.brigade) !== String(d.brigade) || truthy(src.travel) !== !!d.travel;
+/** Відкрити раніше поданий звіт: на редагування (якщо можна) або на перегляд; чернетку нового звіту скинути. */
+function openEarlierReport(r, draftKey) {
+  if (draftKey) delete UI.draft[draftKey];
+  UI.dirty = false;
+  toast('Звіт за цей період уже подано — відкрито раніше поданий');
+  go(canEditReport(r) ? '#/reportform/' + r.id : '#/report/' + r.id);
+}
 function autoTask(d) {
   const tks = tasksOn(d.date).filter(t => String(t.brigade) === String(d.brigade));
   if (tks.length === 1) fillFromTask(d, tks[0]); else d.taskId = '';
@@ -607,6 +616,9 @@ ROUTES.reportform = (id = 'new') => {
   }
   const onVac = arr(d.workers).filter(w => onVacation(w, d.date));
   const ov = repOverlaps({ ...d, summary: src && src.summary, periodFrom: src && src.periodFrom, travel }, src ? src.id : '');
+  const firstSame = ov.find(x => String(x.brigade) === String(d.brigade));
+  // повторний звіт тієї ж бригади за той самий період не створюється — відкривається раніше поданий
+  if (firstSame && !src) { setTimeout(() => openEarlierReport(firstSame, key), 0); return page('Звіт', '<p class="mute center">Відкриваю раніше поданий звіт…</p>', '#/reports'); }
   if (ov.length) {
     const sameBr = ov.some(x => String(x.brigade) === String(d.brigade));
     body = `<div class="note ${sameBr ? 'bad' : 'warn'}"><b>${sameBr ? '⚠ Звіт цієї бригади по цьому обʼєкту за цю дату вже подано.' : 'По цьому обʼєкту за цю дату вже є звіт іншої бригади.'}</b><br>${ov.map(x => `<a href="#/report/${esc(x.id)}">${esc(repLine(x))}</a>`).join('<br>')}${sameBr ? '<br>Якщо треба щось виправити — відкрийте наявний звіт і відредагуйте його.' : ''}</div>` + body;
@@ -628,14 +640,15 @@ FORMS.report = async (d, id) => {
   if (d.date > today()) return toast('Звіт не можна подати на майбутню дату');
   if (num(d.kmHeavy) > num(d.km)) return toast('Пробіг у важких дорожніх умовах не може перевищувати загальний пробіг');
   const src = id !== 'new' ? get('Звіти', id) : null;
-  const moved = !src || src.date !== d.date || src.objectId !== d.objectId || String(src.brigade) !== String(d.brigade) || truthy(src.travel) !== !!d.travel;
+  const moved = !src || moved_(src, d);
   const ov = moved ? repOverlaps({ ...d, travel: !!d.travel, summary: src && src.summary, periodFrom: src && src.periodFrom }, src ? src.id : '') : [];
-  if (ov.length) {
-    const sameBr = ov.some(x => String(x.brigade) === String(d.brigade));
-    const txt = (sameBr ? '⚠ ПОВТОРНИЙ ЗВІТ\n\n' : '') + `По обʼєкту «${objShort(d.objectId)}» за ${uaDate(d.date)} уже подано:\n` + ov.map(x => '• ' + repLine(x)).join('\n') +
-      (sameBr ? '\n\nЯкщо потрібно виправити дані — скасуйте й відредагуйте наявний звіт.\nПодати ще один звіт?' : '\n\nПодати звіт вашої бригади?');
-    if (!await ask(txt, sameBr ? 'Подати повторно' : 'Подати')) return;
+  const firstSame = ov.find(x => String(x.brigade) === String(d.brigade));
+  if (firstSame) {
+    // повторний звіт тієї ж бригади не зберігається — перехід до раніше поданого
+    await ask(`По обʼєкту «${objShort(d.objectId)}» за ${uaDate(d.date)} бригада вже подала звіт:\n• ${repLine(firstSame)}\n\nПовторний звіт не створюється — відкриваю раніше поданий звіт, внесіть зміни в нього.`, 'Відкрити звіт', 'Закрити');
+    return openEarlierReport(firstSame, 'report:' + id);
   }
+  if (ov.length && !await ask(`По обʼєкту «${objShort(d.objectId)}» за ${uaDate(d.date)} уже є звіт іншої бригади:\n` + ov.map(x => '• ' + repLine(x)).join('\n') + '\n\nПодати звіт вашої бригади?', 'Подати')) return;
   const vol = cleanVol(volFromForm(d));
   const row = { ...(src || {}), ...d, travel: !!d.travel };
   // обсяги по діаметрах + загальні суми по методах (для моніторингу й табелів)
