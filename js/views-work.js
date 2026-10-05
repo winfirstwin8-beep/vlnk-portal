@@ -297,7 +297,7 @@ function objDocOf(t) {
 }
 function objDocsBtn(t) {
   const sd = objDocOf(t);
-  return `<span role="button" tabindex="0" class="btn small ${sd && sd.exact ? 'ghost' : 'primary'} tdbtn" data-act="objdocs" data-id="${esc(t.id)}" title="Звіт про відрядження, табель перебування, табель машин і механізмів"><i>${sd && sd.exact ? '✓' : '📄'}</i>Звіти</span>`;
+  return `<span role="button" tabindex="0" class="btn small ${sd && sd.exact ? 'ghost' : 'primary'} tdbtn" data-act="objdocs" data-id="${esc(t.id)}" title="Звіт про відрядження, табель перебування, табель машин і механізмів"><i>${sd && sd.exact ? '✓' : '📄'}</i>Табеля для замовника</span>`;
 }
 ACTS.objdocs = d => go('#/objdocs/' + d.id);
 /** Наказ на відрядження бригади на цей період: з самого завдання, інакше — із завдань тієї ж вахти, інакше — за місяць. */
@@ -359,7 +359,7 @@ ROUTES.objdocs = id => {
     fChk('Запамʼятати email, ставку пересувних і машино-години', 'remember', d.remember) +
     `<p class="small mute">Буде сформовано 3 документи за шаблонами попереднього порталу: звіт про виконання завдання з пересувним характером робіт, табель перебування працівників і реєстр машин і механізмів. Файли (xlsx) збережуться на Google Диску в папці «Звіти для замовника / ${esc(x.from.slice(0, 7))}» і прийдуть листом на вказаний email.</p>`,
     { submit: 'Сформувати й надіслати' }));
-  return page('Звіти для замовника', h, '#/plan');
+  return page('Табеля для замовника', h, '#/plan');
 };
 ONCHANGE.objdocs = d => { UI.draft['objdocs'] = d; };
 FORMS.objdocs = async (d, id) => {
