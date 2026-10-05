@@ -105,7 +105,8 @@ function taskObjCard(oid, t) {
     ${o.name ? `<p class="objfull">${esc(o.name)}</p>` : ''}
     ${kv([['Населений пункт', esc(o.settlement)], ['Відповідальний від замовника', esc(o.contact)], ['Посада', esc(o.contactPos || (objResp(o) || {}).posada || '')],
       ['Табельний № відповідального', esc(respTab(o)) || (o.contact ? '<span class="mute">—</span>' : '')],
-      ['Телефон', ph ? `<a class="tel" href="tel:${esc(ph.replace(/[^\d+]/g, ''))}">📞 ${esc(ph)}</a>` : '']])}
+      ['Телефон', ph ? `<a class="tel" href="tel:${esc(ph.replace(/[^\d+]/g, ''))}">📞 ${esc(ph)}</a>` : ''],
+      ['ТОРО-замовлення', esc(o.soOrder)], ['ТОРО-підзамовлення', esc(o.soSubOrder)], ['№ ICP', esc(o.icp)]])}
     ${t ? `<div class="crew">${taskCrewHtml(t)}</div>` : ''}</div>`;
 }
 ROUTES.taskform = (id = 'new', brig) => {
@@ -299,6 +300,13 @@ function objDocsBtn(t) {
   return `<span role="button" tabindex="0" class="btn small ${sd && sd.exact ? 'ghost' : 'primary'} tdbtn" data-act="objdocs" data-id="${esc(t.id)}" title="Звіт про відрядження, табель перебування, табель машин і механізмів"><i>${sd && sd.exact ? '✓' : '📄'}</i>Звіти</span>`;
 }
 ACTS.objdocs = d => go('#/objdocs/' + d.id);
+/** Наказ на відрядження бригади на цей період: з самого завдання, інакше — із завдань тієї ж вахти, інакше — за місяць. */
+function periodOrder(t) {
+  if (String(t.orderNo || '').trim()) return String(t.orderNo).trim();
+  const sh = brigShifts(t.month || ym(t.dateFrom), t.brigade).find(s => s.tasks.some(x => x.id === t.id));
+  const x = sh && sh.tasks.find(y => String(y.orderNo || '').trim());
+  return x ? String(x.orderNo).trim() : tripOrderNo(t);
+}
 /** «7500-26-2343 від 1.10.2026» → { no: '7500-26-2343', date: '2026-10-01' }. */
 function splitOrder(s) {
   s = String(s || '').trim();
@@ -326,8 +334,8 @@ ROUTES.objdocs = id => {
     ['Період', `${uaDate(x.from)} – ${uaDate(x.to)} · ${x.days} ${plural(x.days, 'день', 'дні', 'днів')}`],
     ['Бригада', esc(brName(t.brigade))],
     ['Замовник', esc([lvumgFull(o.lvumg), o.contact ? `(${[o.contactPos || (objResp(o) || {}).posada || '', o.contact].filter(Boolean).join(' ')})` : ''].filter(Boolean).join(' '))],
-    ['Наказ', esc(tripOrderNo(t) || '—')],
-    ['ТОРО-замовлення / підзамовлення', esc([o.soOrder || '—', o.soSubOrder || '—'].join(' / '))],
+    ['Наказ на відрядження бригади', (() => { const so = splitOrder(periodOrder(t)); return so.no ? `№ <b>${esc(so.no)}</b>${so.date ? ' від <b>' + uaDate(so.date) + '</b>' : ''}` : '<span class="warn">не вказано — впишіть нижче або в завданні</span>'; })()],
+    ['ТОРО-замовлення', esc(o.soOrder || '—')], ['ТОРО-підзамовлення', esc(o.soSubOrder || '—')], ['№ ICP', esc(o.icp || '—')],
     ['Автомобіль', x.car ? carFull(x.car.id) : '<span class="mute">не закріплено</span>'],
     ['Працівники', x.workers.map(wid => { const p = get('Персонал', wid) || {}; return esc(shortName(p.pib || '—')) + (p.tabNo ? ` <span class="small mute">таб. ${esc(p.tabNo)}</span>` : ''); }).join('<br>') || '<span class="bad">склад бригади не призначено</span>'],
     ['У відпустці весь період', x.off.map(wid => esc(shortName(personName(wid)))).join(', ')]
@@ -341,10 +349,10 @@ ROUTES.objdocs = id => {
   else if (!x.car.sapNo) warn.push(`В автомобіля немає SAP (інвентарного) номера. <a href="#/carform/${esc(x.car.id)}">Заповнити</a>`);
   if (ym(x.from) !== ym(x.to)) warn.push('Період переходить на інший місяць — табелі буде заповнено лише за ' + monthName(ym(x.from)) + '.');
   if (warn.length) h += `<div class="note warn">${warn.join('<br>')}</div>`;
-  const d = UI.draft['objdocs'] || { rate: setting('travelRate', '600'), hours: setting('machineHours', '8'), orderDate: splitOrder(tripOrderNo(t)).date, travelFirst: true, travelLast: false, email: setting('docsEmail', ''), remember: true };
+  const d = UI.draft['objdocs'] || { rate: setting('travelRate', '600'), hours: setting('machineHours', '8'), orderNo: splitOrder(periodOrder(t)).no, orderDate: splitOrder(periodOrder(t)).date, travelFirst: true, travelLast: false, email: setting('docsEmail', ''), remember: true };
   h += card('Підтвердження формування', form('objdocs', id,
-    `<div class="grid2">${fNum('Пересувний, грн за добу (на 1 особу)', 'rate', d.rate, { ph: '600' })}${fInp('Дата наказу', 'orderDate', d.orderDate, { type: 'date', hint: 'необовʼязково; порожньо — «__.__.____»' })}</div>` +
-    fNum('Машино-годин на день (реєстр машин)', 'hours', d.hours, { ph: '8' }) +
+    `<div class="grid2">${fInp('№ наказу на відрядження', 'orderNo', d.orderNo, { ph: '7500РХ-26-____', hint: 'наказ на бригаду на цей період' })}${fInp('Дата наказу', 'orderDate', d.orderDate, { type: 'date', hint: 'порожньо — «__.__.____»' })}</div>` +
+    `<div class="grid2">${fNum('Пересувний, грн за добу (на 1 особу)', 'rate', d.rate, { ph: '600' })}${fNum('Машино-годин на день (реєстр машин)', 'hours', d.hours, { ph: '8' })}</div>` +
     fChk('Перший день — у дорозі (Д у табелі, П у реєстрі машин)', 'travelFirst', d.travelFirst) +
     fChk('Останній день — у дорозі', 'travelLast', d.travelLast) +
     fInp('Email, на який надіслати звіти', 'email', d.email, { type: 'email', req: true, ph: 'name@example.com' }) +
@@ -363,7 +371,7 @@ FORMS.objdocs = async (d, id) => {
   if (!x.workers.length) return toast('У бригади немає працівників на цей період');
   if (d.remember) for (const [k, v] of [['docsEmail', email], ['travelRate', String(num(d.rate))], ['machineHours', String(num(d.hours))]]) { const cur = all('Налаштування').find(r => r.key === k); if (!cur || String(cur.value) !== v) await save('Налаштування', cur ? { ...cur, value: v } : { key: k, value: v }); }
   const docs = {
-    taskId: t.id, brigade: t.brigade, from: x.from, to: x.to, orderNo: splitOrder(tripOrderNo(t)).no, orderDate: d.orderDate || splitOrder(tripOrderNo(t)).date,
+    taskId: t.id, brigade: t.brigade, from: x.from, to: x.to, orderNo: String(d.orderNo || '').trim(), orderDate: d.orderDate || '',
     rate: num(d.rate), hours: num(d.hours), travelFirst: !!d.travelFirst, travelLast: !!d.travelLast, email,
     object: { id: o.id, short: o.short || '', name: o.name || o.short || '', lvumg: lvumgFull(o.lvumg), contact: o.contact || '', contactPos: o.contactPos || (objResp(o) || {}).posada || '', soOrder: o.soOrder || '', soSubOrder: o.soSubOrder || '' },
     car: x.car ? { name: x.car.name || '', plate: x.car.plate || '', sapNo: x.car.sapNo || '' } : null,

@@ -280,7 +280,7 @@ ROUTES.tobj = tid => {
   h += card('Паспорт обʼєкта', kv([
     ['Статус', esc(o.status)], ['ЛВУМГ', esc(o.lvumg)], ['Промисловий майданчик', esc(o.site)], ['Населений пункт', esc(o.settlement)],
     ['Відповідальний від замовника', respText(o)], ['Посада відповідального', esc(o.contactPos || (objResp(o) || {}).posada || '')], ['Табельний № відповідального', esc(respTab(o)) || (o.contact ? '<span class="mute">—</span>' : '')], ['Дорога', [o.distBase ? 'від бази ' + esc(o.distBase) + ' км' : '', o.distObj ? 'до обʼєкта ' + esc(o.distObj) + ' км' : '', o.travelTime ? 'у дорозі ' + esc(o.travelTime) : ''].filter(Boolean).join(' · ')], ['Координати', coords],
-    ['СО/ТОРО замовлення', esc(o.soOrder)], ['СО/ТОРО підзамовлення', esc(o.soSubOrder)], ['Пропонований готель', esc(o.hotel)],
+    ['СО/ТОРО замовлення', esc(o.soOrder)], ['СО/ТОРО підзамовлення', esc(o.soSubOrder)], ['№ ICP', esc(o.icp)], ['Пропонований готель', esc(o.hotel)],
     ['Діаметр', o.diameter ? 'Ø ' + esc(o.diameter) + ' мм' : ''], ['Довжина ділянок ремонту', len ? fmtN(len) + ' м' : ''],
     ['Види робіт', esc(arr(o.workTypes).join(', '))], ['Методи НК', esc(methodsOf(o.methods).join(', '))], ['Примітка', esc(o.note)]
   ]));
