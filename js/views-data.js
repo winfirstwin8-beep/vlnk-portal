@@ -272,11 +272,12 @@ ROUTES.tobj = tid => {
   let h = `<div class="objhead"><h2>${esc(o.short || '')}</h2><p>${esc(o.name || '')}</p></div>`;
   h += card('Паспорт обʼєкта', kv([
     ['Статус', esc(o.status)], ['ЛВУМГ', esc(o.lvumg)], ['Промисловий майданчик', esc(o.site)], ['Населений пункт', esc(o.settlement)],
-    ['Відповідальний від замовника', respText(o)], ['Посада відповідального', esc(o.contactPos || (objResp(o) || {}).posada || '')], ['Автомобіль', objCarText(o)], ['Дорога', [o.distBase ? 'від бази ' + esc(o.distBase) + ' км' : '', o.distObj ? 'до обʼєкта ' + esc(o.distObj) + ' км' : '', o.travelTime ? 'у дорозі ' + esc(o.travelTime) : ''].filter(Boolean).join(' · ')], ['Координати', coords],
+    ['Відповідальний від замовника', respText(o)], ['Посада відповідального', esc(o.contactPos || (objResp(o) || {}).posada || '')], ['Табельний № відповідального', esc(respTab(o)) || (o.contact ? '<span class="mute">—</span>' : '')], ['Дорога', [o.distBase ? 'від бази ' + esc(o.distBase) + ' км' : '', o.distObj ? 'до обʼєкта ' + esc(o.distObj) + ' км' : '', o.travelTime ? 'у дорозі ' + esc(o.travelTime) : ''].filter(Boolean).join(' · ')], ['Координати', coords],
     ['СО/ТОРО замовлення', esc(o.soOrder)], ['СО/ТОРО підзамовлення', esc(o.soSubOrder)], ['Пропонований готель', esc(o.hotel)],
     ['Діаметр', o.diameter ? 'Ø ' + esc(o.diameter) + ' мм' : ''], ['Довжина ділянок ремонту', len ? fmtN(len) + ' м' : ''],
     ['Види робіт', esc(arr(o.workTypes).join(', '))], ['Методи НК', esc(methodsOf(o.methods).join(', '))], ['Примітка', esc(o.note)]
   ]));
+  h += card('Бригада та автомобіль', taskCrewHtml(t));
   // усе — за поточний місяць: завдання обʼєкта цього місяця, їх план і звіти за місяць
   const m = ym(today());
   const mFrom = m + '-01', mTo = monthEnd(m);
@@ -362,6 +363,7 @@ ROUTES.objform = (id = 'new') => {
      ${fInp('Пропонований готель', 'hotel', d.hotel, { ph: 'назва, адреса, телефон' })}
      ${fInp('Населений пункт', 'settlement', d.settlement)}
      <fieldset class="f"><legend>Відповідальний від замовника</legend><div class="grid2">${fInp('ПІБ', 'contact', d.contact, { list: 'resplist', hint: visitors().length ? 'оберіть зі списку «Відповідальні від замовника» або впишіть' : '' })}${fInp('Посада', 'contactPos', d.contactPos)}</div>
+       ${fInp('Табельний номер відповідального', 'contactTabNo', d.contactTabNo, { mode: 'numeric', hint: objResp(d) && objResp(d).tabNo && !d.contactTabNo ? 'якщо не вказати — з картки відповідального: ' + objResp(d).tabNo : '' })}
        ${fInp('Телефон', 'contactPhone', d.contactPhone, { type: 'tel', ph: '+380…', hint: objResp(d) && objResp(d).phone && !d.contactPhone ? 'якщо не вказати — з картки відповідального: ' + objResp(d).phone : '' })}
        <datalist id="resplist">${visitors().map(p => `<option value="${esc(p.pib)}">${esc(p.posada || '')}</option>`).join('')}</datalist></fieldset>
      <fieldset class="f"><legend>Дорога (для службової записки)</legend><div class="grid3">${fInp('Від бази до місця проживання, км', 'distBase', d.distBase, { mode: 'decimal' })}${fInp('Від місця проживання до обʼєкта, км', 'distObj', d.distObj, { mode: 'decimal' })}${fInp('Час у дорозі', 'travelTime', d.travelTime, { ph: '7 год. 50 хв.' })}</div></fieldset>
@@ -453,7 +455,7 @@ ROUTES.person = id => {
   const lead = isLead();
   const vis = p.role === 'відвідувач';
   let h = card(esc(p.pib), kv([
-    ['Посада', esc(p.posada)], ...(vis ? [] : [['Табельний номер', esc(p.tabNo || '')]]),
+    ['Посада', esc(p.posada)], ['Табельний номер', esc(p.tabNo || '')],
     ...(vis ? [] : [['Стан', personState(p) ? `<b class="warn">${esc(STATE_LABEL[personState(p)] || personState(p))}</b>${p.absence === personState(p) && (p.absenceFrom || p.absenceTo) ? ` <span class="small mute">${p.absenceFrom ? 'з ' + uaDate(p.absenceFrom) : ''}${p.absenceTo ? ' до ' + uaDate(p.absenceTo) : ''}</span>` : ''}` : '<span class="ok">на роботі</span>']]),
     ['Роль у порталі', esc(roleName(p.role))], ['Email (вхід)', esc(p.email)], ['Корпоративна пошта', p.emailCorp ? `<a href="mailto:${esc(p.emailCorp)}">${esc(p.emailCorp)}</a>` : ''],
     ['Телефон', p.phone ? `<a href="tel:${esc(p.phone)}">${esc(p.phone)}</a>` : ''],
@@ -495,7 +497,7 @@ ROUTES.personform = (id = 'new', kind) => {
   if (id !== 'new' && !src) return notFound();
   const d = UI.draft['person:' + id] || src || { role: kind === 'visitor' ? 'відвідувач' : 'працівник', schedule: '8' };
   const vis0 = d.role === 'відвідувач';
-  const body = fInp('ПІБ', 'pib', d.pib, { req: true, ph: 'Прізвище Імʼя По батькові' }) + (vis0 ? fInp('Посада', 'posada', d.posada) : `<div class="grid2">${fInp('Посада', 'posada', d.posada)}${fInp('Табельний номер', 'tabNo', d.tabNo, { mode: 'numeric' })}</div>`) +
+  const body = fInp('ПІБ', 'pib', d.pib, { req: true, ph: 'Прізвище Імʼя По батькові' }) + (vis0 ? `<div class="grid2">${fInp('Посада', 'posada', d.posada)}${fInp('Табельний номер', 'tabNo', d.tabNo, { mode: 'numeric' })}</div>` : `<div class="grid2">${fInp('Посада', 'posada', d.posada)}${fInp('Табельний номер', 'tabNo', d.tabNo, { mode: 'numeric' })}</div>`) +
     `<div class="grid2">${fInp('Email (для входу)', 'email', d.email, { type: 'email', hint: 'без email увійти в портал не можна' })}${fInp('Телефон', 'phone', d.phone, { type: 'tel' })}</div>
      ${vis0 ? '' : fInp('Корпоративна пошта', 'emailCorp', d.emailCorp, { type: 'email', ph: 'name@tsoua.com' })}
      <div class="grid2">${fSel('Роль у порталі', 'role', ROLE_OPTS, d.role, { re: true })}${fInp('PIN для входу', 'pin', '', { mode: 'numeric', ph: src ? 'не змінювати' : '4–6 цифр' })}</div>` +
@@ -911,7 +913,7 @@ ROUTES.fleet = () => {
   let h = card('Сезон норм', `<p>Зараз діють <b>${nowW ? 'зимові' : 'літні'}</b> норми. Зимовий період: <b>${mdText(w.from)} – ${mdText(w.to)}</b>.</p>
     <p class="small mute">У звітах норма береться на дату звіту. Якщо зимову норму не задано — застосовується літня.</p>
     <form data-form="winter" class="grid2">${fInp('Початок зимового періоду', 'winterFrom', mdText(w.from), { ph: '01.11' })}${fInp('Кінець зимового періоду', 'winterTo', mdText(w.to), { ph: '31.03' })}<button class="btn ghost" type="submit">Зберегти період</button></form>`);
-  h += card('Автомобілі', all('Авто').map(c => `<a class="item" href="#/carform/${esc(c.id)}"><div class="row between"><b>${esc(c.name)} ${esc(c.plate || '')}</b>${badge(esc(c.fuel || ''))}</div>
+  h += card('Автомобілі', all('Авто').map(c => `<a class="item" href="#/carform/${esc(c.id)}"><div class="row between"><b>${esc(c.name)} ${esc(c.plate || '')}</b>${badge(esc(c.fuel || ''))}</div>${c.sapNo ? `<span class="small mute">SAP № ${esc(c.sapNo)}</span>` : ''}
     <div class="normgrid"><span></span><span>літня</span><span>зимова</span>
       <span>Норма, л/100 км</span><b class="${nowW ? '' : 'pri'}">${nv(c.norm100)}</b><b class="${nowW ? 'pri' : ''}">${nv(c.norm100W)}</b>
       <span>Важкі дорожні умови, л/100 км</span><b class="${nowW ? '' : 'pri'}">${nv(c.normHeavy)}</b><b class="${nowW ? 'pri' : ''}">${nv(c.normHeavyW)}</b>
@@ -934,7 +936,7 @@ FORMS.winter = async d => {
 ROUTES.carform = (id = 'new') => {
   if (!isLead()) return denied();
   const src = id !== 'new' ? get('Авто', id) : null; const d = src || { fuel: 'ДП', status: 'в роботі' };
-  return page('Автомобіль', form('car', id, fInp('Марка / назва', 'name', d.name, { req: true }) + `<div class="grid2">${fInp('Держ. номер', 'plate', d.plate)}${fSel('Пальне', 'fuel', FUELS, d.fuel)}</div><fieldset class="f"><legend>Норми витрат палива</legend>
+  return page('Автомобіль', form('car', id, fInp('Марка / назва', 'name', d.name, { req: true }) + `<div class="grid3">${fInp('Держ. номер', 'plate', d.plate)}${fInp('SAP-номер', 'sapNo', d.sapNo, { mode: 'numeric' })}${fSel('Пальне', 'fuel', FUELS, d.fuel)}</div><fieldset class="f"><legend>Норми витрат палива</legend>
     <div class="grid2">${fNum('Літня норма, л/100 км', 'norm100', d.norm100)}${fNum('Зимова норма, л/100 км', 'norm100W', d.norm100W)}</div>
     <div class="grid2">${fNum('Важкі дорожні умови (літо), л/100 км', 'normHeavy', d.normHeavy)}${fNum('Важкі дорожні умови (зима), л/100 км', 'normHeavyW', d.normHeavyW)}</div>
     ${fNum('Робота автономного обігрівача, л/год', 'heaterLh', d.heaterLh)}

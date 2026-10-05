@@ -1,11 +1,12 @@
 /* Портал ВЛНК — ядро: утиліти, локальна база (IndexedDB), синхронізація, розрахунки */
 'use strict';
 
-const VER = '1.8.36';
+const VER = '1.8.37';
 /** Мінімальна версія серверного коду (Code.gs), з якою працює цей застосунок. */
 const NEED_API = '1.8.18';
 /** Що нового — показується один раз після оновлення (коротко, для працівників). */
 const CHANGES = {
+  '1.8.37': ['Завдання: у розгорнутій картці обʼєкта — склад бригади з табельними номерами, табельний номер відповідального від замовника, автомобіль (марка, держ. номер, SAP-номер)', 'Авто: поле «SAP-номер»'],
   '1.8.36': ['Моніторинг: реактиви розділено на проявник і фіксаж; за місяць і рік «Витрати матеріалів» і «Проблемні питання» — одразу після «По обʼєктах»'],
   '1.8.35': ['Звіти: повторний звіт бригади по тому самому обʼєкту за ту саму дату не створюється — відкривається раніше поданий звіт для редагування'],
   '1.8.34': ['Персонал: лічильники «на роботі, у відпустці, на лікарняному, в ЗСУ, на навчанні» з фільтром', 'Картка працівника: працевлаштований, працює за фахом з, стаж на підприємстві й за професією, корпоративна пошта, відсутність; ЗІЗ згорнуто', 'Табельні номери й дати — з попереднього порталу (кнопка на сторінці «Персонал»)'],
@@ -556,6 +557,22 @@ const canReport = () => ME && (ME.role === 'керівник' || ME.role === 'п
 const personName = id => { const p = get('Персонал', id); return p ? p.pib : '—'; };
 const shortName = pib => { const p = String(pib || '').trim().split(/\s+/); return p.length >= 3 ? `${p[0]} ${p[1][0]}.${p[2][0]}.` : String(pib || ''); };
 const objShort = id => { const o = get('Обʼєкти', id); return o ? (o.short || o.name) : '—'; };
+/** Автомобіль повністю: марка, держ. номер, SAP-номер. */
+function carFull(id) {
+  const c = get('Авто', id); if (!c) return '';
+  return [esc(c.name || ''), c.plate ? 'держ. № <b>' + esc(c.plate) + '</b>' : '', c.sapNo ? 'SAP № <b>' + esc(c.sapNo) + '</b>' : ''].filter(Boolean).join(' · ');
+}
+/** Табельний номер відповідального від замовника: з картки обʼєкта, інакше — з картки відповідального. */
+const respTab = o => String((o && o.contactTabNo) || (objResp(o) || {}).tabNo || '').trim();
+/** Склад бригади завдання з табельними номерами й авто (для розгорнутої картки обʼєкта на сторінці «Завдання»). */
+function taskCrewHtml(t) {
+  if (!t) return '';
+  const b = brigadeOf(t.month || ym(t.dateFrom), t.brigade) || {};
+  const mem = brigadeMembers(b);
+  const rows = mem.map(id => { const p = get('Персонал', id) || {}; return `<div class="crewrow"><span>${esc(shortName(p.pib || '—'))}${id === b.leaderId ? ' ' + badge('старший') : ''}${truthy(p.isDriver) ? ' 🚐' : ''}</span><span class="small">таб. № <b>${esc(p.tabNo || '—')}</b></span></div>`; }).join('');
+  return `<p class="small"><b>${brName(t.brigade)}</b></p>` + (rows || '<p class="small mute">склад бригади не призначено</p>') +
+    `<p class="small" style="margin-top:6px">🚐 ${b.carId ? carFull(b.carId) : '<span class="mute">автомобіль не закріплено</span>'}</p>`;
+}
 const carName = id => { const c = get('Авто', id); return c ? c.name + (c.plate ? ' ' + c.plate : '') : '—'; };
 const allPeople = () => all('Персонал').slice().sort((a, b) => String(a.pib).localeCompare(String(b.pib), 'uk'));
 /** Персонал лабораторії — без відвідувачів (вони в окремому розділі «Відвідувачі»). */

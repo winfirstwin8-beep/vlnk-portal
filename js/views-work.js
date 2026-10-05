@@ -98,13 +98,15 @@ function taskItem(t) {
 }
 
 /** Обʼєкт завдання: повна назва, населений пункт, відповідальний від замовника з телефоном. */
-function taskObjCard(oid) {
+function taskObjCard(oid, t) {
   const o = get('Обʼєкти', oid); if (!o) return '';
   const ph = respPhone(o);
   return `<div class="card objcard"><div class="row between"><b>${esc(o.short || '')}</b><a class="small" href="#/object/${esc(o.id)}">Картка обʼєкта ›</a></div>
     ${o.name ? `<p class="objfull">${esc(o.name)}</p>` : ''}
     ${kv([['Населений пункт', esc(o.settlement)], ['Відповідальний від замовника', esc(o.contact)], ['Посада', esc(o.contactPos || (objResp(o) || {}).posada || '')],
-      ['Телефон', ph ? `<a class="tel" href="tel:${esc(ph.replace(/[^\d+]/g, ''))}">📞 ${esc(ph)}</a>` : '']])}</div>`;
+      ['Табельний № відповідального', esc(respTab(o)) || (o.contact ? '<span class="mute">—</span>' : '')],
+      ['Телефон', ph ? `<a class="tel" href="tel:${esc(ph.replace(/[^\d+]/g, ''))}">📞 ${esc(ph)}</a>` : '']])}
+    ${t ? `<div class="crew">${taskCrewHtml(t)}</div>` : ''}</div>`;
 }
 ROUTES.taskform = (id = 'new', brig) => {
   if (!isLead()) return denied();
@@ -126,7 +128,7 @@ ROUTES.taskform = (id = 'new', brig) => {
      <div class="grid2">${fInp('№ заявки НК', 'requestNo', d.requestNo)}${fInp('№ наказу на відрядження', 'orderNo', d.orderNo, { hint: 'один наказ на всі виїзди бригади за місяць' })}</div>
      ${fSel('Статус', 'status', TASK_STATUS, d.status)}
      ${fArea('Примітка', 'note', d.note)}`;
-  return page(id === 'new' ? 'Нове завдання' : 'Завдання', taskObjCard(d.objectId) + (src ? card('Наказ на відрядження', orderBlock(src)) : '') + form('task', id, body, src ? { del: { t: 'Завдання', id, back: '#/tasks' } } : {}), '#/tasks');
+  return page(id === 'new' ? 'Нове завдання' : 'Завдання', taskObjCard(d.objectId, src && src.objectId === d.objectId ? src : null) + (src ? card('Наказ на відрядження', orderBlock(src)) : '') + form('task', id, body, src ? { del: { t: 'Завдання', id, back: '#/tasks' } } : {}), '#/tasks');
 };
 ONCHANGE.task = d => { const o = get('Обʼєкти', d.objectId); if (o && !d.diameters) d.diameters = o.diameter; };
 FORMS.task = async (d, id) => {

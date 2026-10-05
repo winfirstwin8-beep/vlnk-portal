@@ -1,7 +1,7 @@
 /* Портал ВЛНК — демо-дані (вигадані), лише для ознайомлення без сервера */
 'use strict';
 
-const DEMO_VER = '1.8.34'; // змінювати, коли змінюються демо-дані
+const DEMO_VER = '1.8.37'; // змінювати, коли змінюються демо-дані
 const DEMO_USER = { email: 'demo@vlnk.local', name: 'Гончаренко О.В. (демо)', personId: 'p1', role: 'керівник' };
 
 async function seedDemo() {
@@ -87,7 +87,7 @@ async function seedDemo() {
   const onVacDemo = (pid, d) => vacs.some(v => v.personId === pid && (v.factFrom || v.planFrom) <= d && d <= (v.factTo || v.planTo));
 
   [['c1', 'Пежо Боксер', 'ВІ 1234 АА', 12.5], ['c2', 'Фольксваген Крафтер', 'ВІ 5678 ВВ', 13.5], ['c3', 'Авто 3 (нове)', '', 13.5], ['c4', 'Авто 4 (нове)', '', 13.5]]
-    .forEach(([id, name, plate, n]) => add('Авто', { id, name, plate, fuel: 'ДП', norm100: n, norm100W: Math.round(n * 1.1 * 10) / 10, normHeavy: Math.round(n * 1.15 * 10) / 10, normHeavyW: Math.round(n * 1.25 * 10) / 10, heaterLh: 0.25, status: 'в роботі' }));
+    .forEach(([id, name, plate, n]) => add('Авто', { id, name, plate, sapNo: String(10004500 + parseInt(String(id).replace(/\D/g, '') || '0', 10) * 17), fuel: 'ДП', norm100: n, norm100W: Math.round(n * 1.1 * 10) / 10, normHeavy: Math.round(n * 1.15 * 10) / 10, normHeavyW: Math.round(n * 1.25 * 10) / 10, heaterLh: 0.25, status: 'в роботі' }));
   add('Генератори', { id: 'g1', name: 'Електростанція Honda EU22i', invNo: '10451', fuel: 'А-95', normLh: 1.1, normLhW: 1.2, carId: 'c1', motoStart: 1250, fuelStart: 12 });
   add('Генератори', { id: 'g2', name: 'Електростанція Bison BS7500DCE', invNo: '104000042800', fuel: 'ДП', normLh: 1.7, normLhW: 1.85, carId: 'c2', motoStart: 830, fuelStart: 8.5 });
 
