@@ -89,7 +89,7 @@ function taskItem(t) {
   const plan = planOf(t);
   return `<div class="item"><a class="item-link" href="${href}">
     <div class="row between"><b>${esc(o ? o.short : '—')}</b>${badge(esc(status), st)}</div>
-    ${taskDates(t)}
+    ${isLead() && t.dateFrom ? `<div class="tdrow">${taskDates(t)}${objDocsBtn(t)}</div>` : taskDates(t)}
     ${objMeta(o)}
     <span class="small mute">${esc(t.workType || '')}${t.requestNo ? (t.workType ? ' · ' : '') + 'заявка № ' + esc(t.requestNo) : ''}${t.orderNo ? ' · наказ № ' + esc(t.orderNo) : ''}</span>
     <span class="small">${methodsOf(t.methods).map(x => badge(esc(x))).join(' ')} ${t.diameters ? 'Ø ' + esc(arr(t.diameters).join(', ')) : ''}</span>
@@ -285,6 +285,98 @@ function shiftHead(s, lead) {
     <div class="small">${st}</div>
     ${lead ? `<a class="btn small ${sd && sd.exact ? 'ghost' : 'primary'}" href="#/shiftdocs/${esc(s.brigade)}/${s.from}/${s.to}">${sd && sd.exact ? 'Сформувати повторно' : 'Сформувати СЗ і відомість'}</a>` : ''}</div>`;
 }
+// ═════════ ЗВІТИ ДЛЯ ЗАМОВНИКА ЗА ОБʼЄКТОМ ═════════
+/** Останнє формування звітів для завдання (на ці ж дати — exact). */
+/** Повна назва ЛВУМГ: у картці зазвичай лише «Подільське». */
+const lvumgFull = v => { v = String(v || '').trim(); return v && !/ЛВУМГ|УМГ/i.test(v) ? v + ' ЛВУМГ' : v; };
+function objDocOf(t) {
+  const ds = all('ЗвітиЗамовнику').filter(d => d.taskId === t.id).sort((x, y) => num(y.sentAt) - num(x.sentAt));
+  const exact = ds.find(d => d.dateFrom === t.dateFrom && d.dateTo === (t.dateTo || t.dateFrom));
+  return exact ? { doc: exact, exact: true } : ds[0] ? { doc: ds[0], exact: false } : null;
+}
+function objDocsBtn(t) {
+  const sd = objDocOf(t);
+  return `<span role="button" tabindex="0" class="btn small ${sd && sd.exact ? 'ghost' : 'primary'} tdbtn" data-act="objdocs" data-id="${esc(t.id)}" title="Звіт про відрядження, табель перебування, табель машин і механізмів"><i>${sd && sd.exact ? '✓' : '📄'}</i>Звіти</span>`;
+}
+ACTS.objdocs = d => go('#/objdocs/' + d.id);
+function objDocsData(t) {
+  const m = t.month || ym(t.dateFrom), from = t.dateFrom, to = t.dateTo || t.dateFrom;
+  const b = brigadeOf(m, t.brigade) || {};
+  const days = daysBetween(from, to) + 1;
+  const mem = brigadeMembers(b);
+  const workers = mem.filter(id => vacDaysIn(id, from, to).size < days);
+  const off = mem.filter(id => !workers.includes(id));
+  return { m, from, to, b, days, workers, off, car: b.carId ? get('Авто', b.carId) : null };
+}
+ROUTES.objdocs = id => {
+  if (!isLead()) return denied();
+  const t = get('Завдання', id); if (!t) return notFound();
+  const o = get('Обʼєкти', t.objectId) || {};
+  const x = objDocsData(t);
+  const sd = objDocOf(t);
+  let h = card(`${esc(o.short || '—')} · ${uaDate(x.from)} – ${uaDate(x.to)}`, (o.name ? `<p class="objfull">${esc(o.name)}</p>` : '') + kv([
+    ['Період', `${uaDate(x.from)} – ${uaDate(x.to)} · ${x.days} ${plural(x.days, 'день', 'дні', 'днів')}`],
+    ['Бригада', esc(brName(t.brigade))],
+    ['Замовник', esc([lvumgFull(o.lvumg), o.contact ? `(${[o.contactPos || (objResp(o) || {}).posada || '', o.contact].filter(Boolean).join(' ')})` : ''].filter(Boolean).join(' '))],
+    ['Наказ', esc(tripOrderNo(t) || '—')],
+    ['ТОРО-замовлення / підзамовлення', esc([o.soOrder || '—', o.soSubOrder || '—'].join(' / '))],
+    ['Автомобіль', x.car ? carFull(x.car.id) : '<span class="mute">не закріплено</span>'],
+    ['Працівники', x.workers.map(wid => { const p = get('Персонал', wid) || {}; return esc(shortName(p.pib || '—')) + (p.tabNo ? ` <span class="small mute">таб. ${esc(p.tabNo)}</span>` : ''); }).join('<br>') || '<span class="bad">склад бригади не призначено</span>'],
+    ['У відпустці весь період', x.off.map(wid => esc(shortName(personName(wid)))).join(', ')]
+  ]) + (sd ? `<p class="small mute">${sd.exact ? '✓ Уже сформовано' : '⚠ Формувалось на ' + uaDate(sd.doc.dateFrom) + ' – ' + uaDate(sd.doc.dateTo) + ', дати змінились'}: ${esc(fmtDT(sd.doc.sentAt))}, ${esc(sd.doc.email || '')}${arr(sd.doc.files).map(f => f && f.url ? ` · <a href="${esc(f.url)}" target="_blank" rel="noopener">${esc(String(f.name || '').replace(/ .*$/, '') || 'файл')} ↗</a>` : '').join('')}</p>` : ''));
+  const warn = [];
+  const noTab = x.workers.filter(wid => !String((get('Персонал', wid) || {}).tabNo || '').trim());
+  if (noTab.length) warn.push(`Немає табельного номера: ${noTab.map(wid => `<a href="#/personform/${esc(wid)}">${esc(shortName(personName(wid)))}</a>`).join(', ')} — буде взято з попереднього порталу, якщо там є.`);
+  if (!o.soOrder || !o.soSubOrder) warn.push(`Не вказано № ТОРО-замовлення / підзамовлення — у табелях буде «____». <a href="#/objform/${esc(o.id)}">Заповнити в картці обʼєкта</a>`);
+  if (!o.contact) warn.push('Не вказано відповідального від замовника — рядок «Перевірив (замовник)» лишиться порожнім.');
+  if (!x.car) warn.push('Бригаді не закріплено автомобіль — реєстр машин буде порожнім.');
+  else if (!x.car.sapNo) warn.push(`В автомобіля немає SAP (інвентарного) номера. <a href="#/carform/${esc(x.car.id)}">Заповнити</a>`);
+  if (ym(x.from) !== ym(x.to)) warn.push('Період переходить на інший місяць — табелі буде заповнено лише за ' + monthName(ym(x.from)) + '.');
+  if (warn.length) h += `<div class="note warn">${warn.join('<br>')}</div>`;
+  const d = UI.draft['objdocs'] || { rate: setting('travelRate', '600'), hours: setting('machineHours', '8'), orderDate: '', travelFirst: true, travelLast: false, email: setting('docsEmail', ''), remember: true };
+  h += card('Підтвердження формування', form('objdocs', id,
+    `<div class="grid2">${fNum('Пересувний, грн за добу (на 1 особу)', 'rate', d.rate, { ph: '600' })}${fInp('Дата наказу', 'orderDate', d.orderDate, { type: 'date', hint: 'необовʼязково; порожньо — «__.__.____»' })}</div>` +
+    fNum('Машино-годин на день (реєстр машин)', 'hours', d.hours, { ph: '8' }) +
+    fChk('Перший день — у дорозі (Д у табелі, П у реєстрі машин)', 'travelFirst', d.travelFirst) +
+    fChk('Останній день — у дорозі', 'travelLast', d.travelLast) +
+    fInp('Email, на який надіслати звіти', 'email', d.email, { type: 'email', req: true, ph: 'name@example.com' }) +
+    fChk('Запамʼятати email, ставку пересувних і машино-години', 'remember', d.remember) +
+    `<p class="small mute">Буде сформовано 3 документи за шаблонами попереднього порталу: звіт про виконання завдання з пересувним характером робіт, табель перебування працівників і реєстр машин і механізмів. Файли (xlsx) збережуться на Google Диску в папці «Звіти для замовника / ${esc(x.from.slice(0, 7))}» і прийдуть листом на вказаний email.</p>`,
+    { submit: 'Сформувати й надіслати' }));
+  return page('Звіти для замовника', h, '#/plan');
+};
+ONCHANGE.objdocs = d => { UI.draft['objdocs'] = d; };
+FORMS.objdocs = async (d, id) => {
+  const t = get('Завдання', id); if (!t) return toast('Завдання не знайдено');
+  const o = get('Обʼєкти', t.objectId) || {};
+  const x = objDocsData(t);
+  const email = String(d.email || '').trim();
+  if (!/^[^\s@,;]+@[^\s@,;]+\.[^\s@,;]+$/.test(email)) return toast('Вкажіть коректний email');
+  if (!x.workers.length) return toast('У бригади немає працівників на цей період');
+  if (d.remember) for (const [k, v] of [['docsEmail', email], ['travelRate', String(num(d.rate))], ['machineHours', String(num(d.hours))]]) { const cur = all('Налаштування').find(r => r.key === k); if (!cur || String(cur.value) !== v) await save('Налаштування', cur ? { ...cur, value: v } : { key: k, value: v }); }
+  const docs = {
+    taskId: t.id, brigade: t.brigade, from: x.from, to: x.to, orderNo: tripOrderNo(t) || '', orderDate: d.orderDate || '',
+    rate: num(d.rate), hours: num(d.hours), travelFirst: !!d.travelFirst, travelLast: !!d.travelLast, email,
+    object: { id: o.id, short: o.short || '', name: o.name || o.short || '', lvumg: lvumgFull(o.lvumg), contact: o.contact || '', contactPos: o.contactPos || (objResp(o) || {}).posada || '', soOrder: o.soOrder || '', soSubOrder: o.soSubOrder || '' },
+    car: x.car ? { name: x.car.name || '', plate: x.car.plate || '', sapNo: x.car.sapNo || '' } : null,
+    workers: x.workers.map(wid => { const p = get('Персонал', wid) || {}; return { id: wid, pib: p.pib || '', posada: p.posada || '', tabNo: p.tabNo || '' }; })
+  };
+  if (MODE === 'demo') {
+    await save('ЗвітиЗамовнику', { taskId: t.id, objectId: o.id, brigade: t.brigade, dateFrom: x.from, dateTo: x.to, workers: JSON.stringify(x.workers), email, files: '[]', authorId: ME.personId || '', sentAt: Date.now() });
+    delete UI.draft['objdocs']; UI.dirty = false;
+    const tag = `${o.short} ${uaDate(x.from)}-${uaDate(x.to)}`;
+    await ask(`ДЕМО: у робочій версії буде сформовано 3 файли xlsx і надіслано на ${email}:\n\n📎 Звіт про відрядження ${tag}.xlsx\n📎 Табель перебування ${tag}.xlsx\n📎 Табель машин і механізмів ${tag}.xlsx\n\nПрацівників: ${x.workers.length}, ${x.days} ${plural(x.days, 'день', 'дні', 'днів')}${docs.rate ? `, пересувні ${fmtN(docs.rate * x.days * x.workers.length)} грн` : ''}`, 'Зрозуміло', 'Закрити');
+    return go('#/plan');
+  }
+  if (!navigator.onLine) return toast('Потрібен інтернет: звіти формуються на сервері');
+  toast('Формую звіти…');
+  const res = await api({ action: 'genobjdocs', docs }, 180000).catch(e => ({ ok: false, error: e.name === 'AbortError' ? 'сервер не відповів вчасно' : e.message }));
+  if (!res.ok) return toast('Не вдалося сформувати: ' + (res.error === 'Невідома дія' ? 'оновіть серверну частину порталу' : res.error));
+  await applyLocal('ЗвітиЗамовнику', res.row);
+  for (const r of res.tabNos || []) { const p = get('Персонал', r.id); if (p) await applyLocal('Персонал', { ...p, tabNo: r.tabNo }); }
+  delete UI.draft['objdocs']; UI.dirty = false;
+  savedMsg('Звіти сформовано й надіслано на ' + email); history.back();
+};
 // ── формування СЗ і відомості проживання на період вахти
 function shiftData(n, from, to) {
   const s = brigShifts(ym(from), n).find(x => x.from === from && x.to === to) || brigShifts(ym(to), n).find(x => x.from === from && x.to === to);
