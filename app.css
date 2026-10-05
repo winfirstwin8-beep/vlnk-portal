@@ -304,3 +304,6 @@ details.fold > summary::-webkit-details-marker { display: none; }
 details.fold > summary .mute::after { content: ' ▾'; }
 details.fold[open] > summary .mute::after { content: ' ▴'; }
 details.fold[open] > summary { margin-bottom: 8px; }
+/* бригада в розгорнутій картці обʼєкта */
+.crew { border-top: 1px solid var(--line); margin-top: 8px; padding-top: 8px; }
+.crewrow { display: flex; justify-content: space-between; gap: 8px; padding: 3px 0; border-bottom: 1px dashed var(--line); }
