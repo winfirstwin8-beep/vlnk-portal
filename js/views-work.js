@@ -392,15 +392,16 @@ function matCard(reps, per) {
   const row = (name, v, unit, sub) => `<span>${name}${sub ? `<br><span class="small mute">${sub}</span>` : ''}</span><b>${v ? fmtN3(v) + ' ' + unit : '—'}</b>`;
   let body = `<div class="matgrid">
     ${row('Рентгенплівка', t.film, 'дм²')}
-    ${row('Реактиви RT', chem(t), 'л', `проявник ${fmtN3(t.dev)} л · фіксаж ${fmtN3(t.fix)} л`)}
+    ${row('Проявник RT', t.dev, 'л')}
+    ${row('Фіксаж RT', t.fix, 'л')}
     ${row('Пенетранти (PT)', pt(t), 'л', `розчинник ${fmtN3(t.pts)} · пенетрант ${fmtN3(t.ptp)} · проявник ${fmtN3(t.ptd)} л`)}
     ${t.ptMat ? row('Матеріали PT', t.ptMat, 'компл.') : ''}</div>`;
-  const line = q => [fmtN3(q.film), fmtN3(chem(q)), fmtN3(pt(q))];
+  const line = q => [fmtN3(q.film), fmtN3(q.dev), fmtN3(q.fix), fmtN3(pt(q))];
   const has = q => q.film || chem(q) || pt(q);
   const byB = BRIGADES.map(n => [n, agg(reps.filter(r => +r.brigade === n))]).filter(([, q]) => has(q));
-  if (per !== 'day' && byB.length) body += `<p class="small"><b>По бригадах</b></p>` + table(['Бр.', 'Плівка, дм²', 'Реактиви, л', 'Пенетранти, л'], byB.map(([n, q]) => [n === 5 ? '5 (рез.)' : n, ...line(q)]), 'num');
+  if (per !== 'day' && byB.length) body += `<p class="small"><b>По бригадах</b></p>` + table(['Бр.', 'Плівка, дм²', 'Проявник, л', 'Фіксаж, л', 'Пенетранти, л'], byB.map(([n, q]) => [n === 5 ? '5 (рез.)' : n, ...line(q)]), 'num');
   const byO = [...new Set(reps.map(r => r.objectId))].map(id => [id, agg(reps.filter(r => r.objectId === id))]).filter(([, q]) => has(q)).sort((x, y) => y[1].film - x[1].film);
-  if (byO.length) body += `<p class="small"><b>По обʼєктах</b></p>` + table(['Обʼєкт', 'Плівка, дм²', 'Реактиви, л', 'Пенетранти, л'], byO.map(([id, q]) => [`<a href="#/object/${esc(id)}">${esc(objShort(id))}</a>`, ...line(q)]), 'num first');
+  if (byO.length) body += `<p class="small"><b>По обʼєктах</b></p>` + table(['Обʼєкт', 'Плівка, дм²', 'Проявник, л', 'Фіксаж, л', 'Пенетранти, л'], byO.map(([id, q]) => [`<a href="#/object/${esc(id)}">${esc(objShort(id))}</a>`, ...line(q)]), 'num first');
   return card('Витрати матеріалів', body + `<p class="small mute">За звітами: фактичні значення, а де їх не внесено — за нормами на діаметр.</p>`);
 }
 
@@ -695,7 +696,7 @@ ROUTES.mon = () => {
     `<div class="monthnav"><button class="btn icon" data-act="mshift" data-k="-1">‹</button><b>${label}</b><button class="btn icon" data-act="mshift" data-k="1">›</button></div>`;
   h += kpis([
     ['люд-год', fmtN(s.manH)], ['особл. хар-р', fmtN(s.special)], ...METHODS.map((m, i) => [mHead(m), mVals(s)[i]]),
-    ['км', fmtN(s.km)], ['пальне, л', fmtN(s.fuelTotal)], ['плівка, дм²', fmtN(s.film)], ['реактиви, л', fmtN3(s.dev + s.fix)], ['пенетранти, л', fmtN3(s.pts + s.ptp + s.ptd)], ['звітів', s.n]
+    ['км', fmtN(s.km)], ['пальне, л', fmtN(s.fuelTotal)], ['плівка, дм²', fmtN(s.film)], ['проявник, л', fmtN3(s.dev)], ['фіксаж, л', fmtN3(s.fix)], ['пенетранти, л', fmtN3(s.pts + s.ptp + s.ptd)], ['звітів', s.n]
   ]);
 
   if (per === 'day') {
@@ -715,6 +716,8 @@ ROUTES.mon = () => {
   }
   if (per !== 'day') h += card('По бригадах', table(['Бр.', 'Днів', 'Люд-год', 'Особл.', ...METHODS.map(mHead)], byB, 'num'));
 
+  const prob = reps.filter(r => r.problems).sort((x, y) => String(y.date).localeCompare(String(x.date)));
+  const tail = matCard(reps, per) + (prob.length ? card('Проблемні питання', prob.slice(0, 30).map(r => `<a class="item" href="#/report/${r.id}"><b>${uaDate(r.date)} · Б${esc(r.brigade)} · ${esc(objShort(r.objectId))}</b><p class="pre small">${esc(r.problems)}</p></a>`).join('')) : '');
   const objIds = [...new Set(reps.map(r => r.objectId))];
   if (objIds.length) {
     const rows = objIds.map(id => {
@@ -727,6 +730,8 @@ ROUTES.mon = () => {
     h += card('По обʼєктах', table(['Обʼєкт', ...METHODS.map(mHead)],
       rows.map(r => [`<a href="#/object/${r.id}">${esc(r.name)}</a>`, ...mVals(r.q)]), 'num first'));
   }
+  // за місяць і рік — витрати матеріалів і проблемні питання одразу після «По обʼєктах»
+  if (per !== 'day') h += tail;
 
   if (per !== 'day') {
     const ppl = staff().filter(p => p.role !== 'відвідувач').map(p => {
@@ -747,9 +752,6 @@ ROUTES.mon = () => {
     h += card('По місяцях', table(['Місяць', 'Люд-год', 'Особл.', ...METHODS.map(mHead)], rows, 'num first'));
   }
 
-  h += matCard(reps, per);
-
-  const prob = reps.filter(r => r.problems).sort((x, y) => String(y.date).localeCompare(String(x.date)));
-  if (prob.length) h += card('Проблемні питання', prob.slice(0, 30).map(r => `<a class="item" href="#/report/${r.id}"><b>${uaDate(r.date)} · Б${esc(r.brigade)} · ${esc(objShort(r.objectId))}</b><p class="pre small">${esc(r.problems)}</p></a>`).join(''));
+  if (per === 'day') h += tail;
   return page('Моніторинг', h);
 };
