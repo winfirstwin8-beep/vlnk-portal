@@ -759,6 +759,11 @@ function reportItem(r) {
     <span class="small mute">Подав: ${esc(repAuthor(r))}${repWhen(r) ? ' · ' + fmtDT(repWhen(r)) : ''}</span></a>`;
 }
 
+/** Журнал змін звіту: [{id, name, at}] (хто й коли вносив зміни після створення). */
+const meShort = () => ME.personId && get('Персонал', ME.personId) ? shortName(personName(ME.personId)) : (ME.name || ME.email || '');
+const repEditLog = r => { try { const v = typeof r.editLog === 'string' ? JSON.parse(r.editLog || '[]') : (r.editLog || []); return Array.isArray(v) ? v : []; } catch (e) { return []; } };
+/** Звіти бригади за дату (крім підсумкових). */
+const brigDayReports = (date, brigade) => all('Звіти').filter(r => r.date === date && String(r.brigade) === String(brigade) && !isSummary(r)).sort((a, b) => repWhen(a) - repWhen(b));
 function canEditReport(r) { return isLead() || (canReport() && (r.authorId === ME.personId || arr(r.workers).includes(ME.personId))); }
 
 ROUTES.report = id => {
@@ -794,14 +799,19 @@ ROUTES.report = id => {
   if (r.problems) h += card('Проблемні питання та затримки', `<p class="pre">${esc(r.problems)}</p>`);
   if (r.note) h += card('Примітка', `<p class="pre">${esc(r.note)}</p>`);
   const ed = repEditor(r), edited = num(r.createdAt) && num(r.updatedAt) - num(r.createdAt) > 60000;
+  const log = repEditLog(r);
   h += card('Подання звіту', kv([
-    ['Подав', esc(repAuthor(r))],
-    ['Час подання', esc(fmtDT(repWhen(r)))],
-    ['Остання зміна', edited ? esc(ed) + ', ' + esc(fmtDT(r.updatedAt)) : '']
+    ['Створив', esc(repAuthor(r))],
+    ['Час створення', esc(fmtDT(repWhen(r)))],
+    ['Зміни', log.length ? log.map(e => `${esc(e.name || '—')}, ${esc(fmtDT(e.at))}`).join('<br>') : (edited ? esc(ed) + ', ' + esc(fmtDT(r.updatedAt)) : '<span class="mute">не змінювався</span>')]
   ]));
   const ov = repOverlaps(r, r.id);
   if (ov.length) h = `<div class="note ${isRepeatReport(r) ? 'bad' : 'warn'}"><b>${isRepeatReport(r) ? '⚠ Повторний звіт.' : 'Увага.'}</b> По цьому обʼєкту за цей період є ще ${ov.length === 1 ? 'звіт' : 'звіти'}:<br>${ov.map(x => `<a href="#/report/${esc(x.id)}">${esc(repLine(x))}</a>`).join('<br>')}</div>` + h;
   if (canEditReport(r)) h += `<div class="row gap"><a class="btn primary" href="#/reportform/${esc(r.id)}">Редагувати</a></div>`;
+  if (UI.savedRep && UI.savedRep.id === r.id && Date.now() - UI.savedRep.at < 180000) {
+    const sv = UI.savedRep;
+    h = `<div class="note okbox"><b>✅ ${sv.edit ? 'Зміни до звіту успішно збережено' : 'Ваш звіт успішно збережено'}</b><br>${esc(fmtDT(sv.at))}${MODE === 'live' && !navigator.onLine ? ' · <span class="warn">збережено на телефоні, надішлеться, коли зʼявиться інтернет</span>' : ''}</div>` + h;
+  }
   return page('Звіт', h, '#/reports');
 };
 
@@ -900,6 +910,7 @@ function volAct(fn) {
   const v = volFromForm(d); d.vol = v.length ? v : (d.vol || []);
   fn(d); UI.draft[key] = d; UI.dirty = false; render(); UI.dirty = true;
 }
+ACTS.newrepanyway = () => { UI.allowNewRep = true; delete UI.draft['report:new']; render(); };
 ACTS.voladd = () => volAct(d => d.vol.push({ d: '' }));
 ACTS.voldel = ds => volAct(d => d.vol.splice(Number(ds.i), 1));
 /** Чи змінено в редагованому звіті дату, бригаду, обʼєкт або характер (переїзд). */
@@ -918,11 +929,24 @@ function autoTask(d) {
 
 ROUTES.reportform = (id = 'new') => {
   if (!canReport()) return denied();
+  if (UI.savingRep) return page('Звіт', '<p class="mute center">Зберігаю звіт…</p>', '#/reports');
   const key = 'report:' + id;
   const src = id !== 'new' ? get('Звіти', id) : null;
   if (id !== 'new' && !src) return notFound();
   if (src && !canEditReport(src)) return denied();
   let d = UI.draft[key];
+  if (!src && !d && !UI.allowNewRep) {
+    const mb = myBrigade(today());
+    const ex = mb ? brigDayReports(today(), mb.num) : [];
+    if (ex.length) {
+      const h = `<div class="note warn"><b>⚠ Звіт вашої бригади за сьогодні (${uaDate(today())}) вже надіслано.</b><br>Новий бланк не створюється — відкрийте наявний звіт і внесіть зміни. Автор звіту і всі, хто вносить зміни, фіксуються.</div>` +
+        ex.map(r => card(`${esc(objShort(r.objectId))}${truthy(r.travel) ? ' · переїзд' : ''}`, kv([['Створив', esc(repAuthor(r)) + ', ' + esc(fmtDT(repWhen(r)))], ['Остання зміна', repEditLog(r).length ? esc(repEditLog(r).slice(-1)[0].name) + ', ' + esc(fmtDT(repEditLog(r).slice(-1)[0].at)) : '']]) +
+          `<div class="row gap">${canEditReport(r) ? `<a class="btn primary" href="#/reportform/${esc(r.id)}">✏️ Редагувати існуючий звіт</a>` : ''}<a class="btn ghost" href="#/report/${esc(r.id)}">Переглянути</a></div>`)).join('') +
+        `<p class="small mute">Бригада сьогодні працювала ще на іншому обʼєкті або був переїзд? <button type="button" class="btn small ghost" data-act="newrepanyway">Новий звіт по іншому обʼєкту</button></p>`;
+      return page('Щоденний звіт', h, '#/reports');
+    }
+  }
+  if (!src && !d) UI.allowNewRep = false;
   if (!d) {
     if (src) d = { ...src, workers: arr(src.workers), vol: volRows(src).map(v => ({ ...v })), matManual: arr(src.matManual), travel: truthy(src.travel) };
     else {
@@ -968,6 +992,7 @@ ROUTES.reportform = (id = 'new') => {
     const sameBr = ov.some(x => String(x.brigade) === String(d.brigade));
     body = `<div class="note ${sameBr ? 'bad' : 'warn'}"><b>${sameBr ? '⚠ Звіт цієї бригади по цьому обʼєкту за цю дату вже подано.' : 'По цьому обʼєкту за цю дату вже є звіт іншої бригади.'}</b><br>${ov.map(x => `<a href="#/report/${esc(x.id)}">${esc(repLine(x))}</a>`).join('<br>')}${sameBr ? '<br>Якщо треба щось виправити — відкрийте наявний звіт і відредагуйте його.' : ''}</div>` + body;
   }
+  if (src) body = `<div class="note">✏️ Редагування звіту, створеного: <b>${esc(repAuthor(src))}</b>, ${esc(fmtDT(repWhen(src)))}.${repEditLog(src).length ? ` Останні зміни: ${esc(repEditLog(src).slice(-1)[0].name)}, ${esc(fmtDT(repEditLog(src).slice(-1)[0].at))}.` : ''} Ваші зміни буде зафіксовано (${esc(meShort())}).</div>` + body;
   if (onVac.length) body = `<div class="note warn">У відпустці на ${uaDate(d.date)}: ${onVac.map(w => esc(shortName(personName(w)))).join(', ')}. Перевірте склад.</div>` + body;
   body += fArea('Проблемні питання та затримки в роботі', 'problems', d.problems, { ph: 'Простої, відсутність фронту робіт, несправності…' }) + fArea('Примітка', 'note', d.note, { rows: 2 });
   return page(id === 'new' ? 'Новий звіт' : 'Редагування звіту', form('report', id, body, src ? { del: { t: 'Звіти', id, back: '#/reports' } } : {}), src ? '#/report/' + id : '#/reports');
@@ -1011,11 +1036,20 @@ FORMS.report = async (d, id) => {
     row.genRefuel = g ? g.refuel : 0; row.genFuel = d.genFuel || (get('Генератори', row.genId) || {}).fuel || '';
   } else { row.genRefuel = ''; row.genFuel = ''; if (!row.genId) row.genHours = ''; }
   if (row.travel) { [...MKEYS, 'meters', ...MAT.map(m => m[0]), 'ptMat', 'genId', 'genHours', 'genRefuel', 'genFuel'].forEach(k => (row[k] = '')); row.vol = []; row.diameters = []; row.matManual = []; }
-  if (!src) { row.authorId = ME.personId || ''; row.createdAt = Date.now(); delete row.id; }
-  else if (!num(row.createdAt)) row.createdAt = num(src.updatedAt) || Date.now();
-  await save('Звіти', row);
-  delete UI.draft['report:' + id]; UI.dirty = false;
-  savedMsg('Звіт збережено'); go('#/reports');
+  const now = Date.now();
+  if (!src) { row.authorId = ME.personId || ''; row.createdAt = now; row.editLog = '[]'; delete row.id; }
+  else {
+    if (!num(row.createdAt)) row.createdAt = num(src.updatedAt) || now;
+    const log = repEditLog(src); log.push({ id: ME.personId || '', name: meShort(), at: now });
+    row.editLog = JSON.stringify(log.slice(-30));
+  }
+  UI.savingRep = true; // поки зберігається — форма не перемальовується (інакше спрацює перехід до «вже поданого» звіту)
+  let saved;
+  try { saved = await save('Звіти', row); } finally { UI.savingRep = false; }
+  delete UI.draft['report:' + id]; UI.dirty = false; UI.allowNewRep = false;
+  UI.savedRep = { id: saved.id, at: now, edit: !!src };
+  toast((src ? 'Зміни до звіту успішно збережено' : 'Ваш звіт успішно збережено') + ' · ' + fmtDT(now));
+  go('#/report/' + saved.id);
 };
 
 // ═════════ МОНІТОРИНГ ═════════

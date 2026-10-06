@@ -392,8 +392,9 @@ ROUTES.home = () => {
     const done = mb && reps.some(r => String(r.brigade) === String(mb.num));
     h += card('Моє завдання на сьогодні',
       (mine.length ? mine.map(taskLine).join('') : empty(mb ? 'На сьогодні завдань для вашої бригади немає' : 'Вас не включено до бригади цього місяця')) +
-      `<div class="row gap">${done ? badge('✓ Звіт подано', 'ok') : (mine.length ? badge('Звіт ще не подано', 'warn') : '')}
-       <a class="btn primary" href="#/reportform/new">Подати щоденний звіт</a></div>`);
+      (() => { const ex = mb ? brigDayReports(d, mb.num) : []; const r0 = ex[ex.length - 1];
+        return `<div class="row gap">${r0 ? badge('✓ Звіт за сьогодні вже надіслано', 'ok') + ` <span class="small mute">${esc(repAuthor(r0))}, ${esc(fmtDT(repWhen(r0)).slice(11))}</span>` : (mine.length ? badge('Звіт ще не подано', 'warn') : '')}
+       ${r0 ? (canEditReport(r0) ? `<a class="btn ghost" href="#/reportform/${esc(r0.id)}">✏️ Редагувати існуючий звіт</a>` : `<a class="btn ghost" href="#/report/${esc(r0.id)}">Переглянути звіт</a>`) : '<a class="btn primary" href="#/reportform/new">Подати щоденний звіт</a>'}</div>`; })());
   }
 
   // проблемні питання зі щоденних звітів за останні 7 днів
