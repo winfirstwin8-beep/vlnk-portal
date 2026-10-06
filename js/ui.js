@@ -378,6 +378,9 @@ ROUTES.home = () => {
   const tk = tasksOn(d);
   const reps = all('Звіти').filter(r => r.date === d);
   let h = `<div class="hello"><div><b>${esc(ME.name)}</b><div class="mute">${esc(roleName(ME.role))} · ${uaDate(d)}</div></div>${mb ? badge(brName(mb.num), 'pri') : ''}</div>`;
+  // новини — на початку сторінки
+  const news = all('Новини').slice().sort((a, b) => String(b.date).localeCompare(String(a.date))).slice(0, 3);
+  h += card('Новини', news.length ? news.map(n => `<a class="item" href="#/news"><b>${esc(n.title)}</b><span class="mute small">${uaDate(n.date)}</span><p class="clamp">${esc(n.text)}</p></a>`).join('') : empty('Новин немає'), `<a class="small" href="#/news">Усі ›</a>`);
   if (UI.whatsNew && UI.whatsNew.length) h += `<div class="note whatsnew"><div class="row between"><b>🎉 Портал оновлено до версії ${VER}</b><button class="btn small ghost" data-act="wnclose" aria-label="Закрити">✕</button></div>
     <ul>${UI.whatsNew.flatMap(v => CHANGES[v]).slice(0, 8).map(t => `<li>${esc(t)}</li>`).join('')}</ul></div>`;
   if (MODE === 'demo') h += `<div class="note demo-note"><b>Демо-режим</b> · дані вигадані. Зараз ви: <b>${esc(roleName(ME.role))}</b>.<br>Подивитися портал очима іншої ролі:
@@ -393,18 +396,24 @@ ROUTES.home = () => {
        <a class="btn primary" href="#/reportform/new">Подати щоденний звіт</a></div>`);
   }
 
+  // проблемні питання зі щоденних звітів за останні 7 днів
+  const prob = all('Звіти').filter(r => String(r.problems || '').trim() && r.date >= addDays(d, -6) && r.date <= d)
+    .sort((a, b) => String(b.date).localeCompare(String(a.date)) || num(b.updatedAt) - num(a.updatedAt));
+  h += card('Проблемні питання', prob.length ? prob.slice(0, 10).map(r => `<a class="item" href="#/report/${esc(r.id)}"><div class="row between"><b>${esc(objShort(r.objectId))}</b><span class="small mute">${uaDate(r.date)} · Б${esc(r.brigade)}</span></div><p class="pre small">${esc(r.problems)}</p></a>`).join('') + (prob.length > 10 ? `<p class="small mute">і ще ${prob.length - 10}…</p>` : '')
+    : empty('За останні 7 днів проблемних питань у звітах немає'), '<span class="small mute">за 7 днів</span>');
+
   h += card('Бригади сьогодні', table(['Бригада', 'Обʼєкт', 'Звіт'], BRIGADES.map(n => {
     const t = tk.filter(x => +x.brigade === n);
     const rp = reps.filter(x => +x.brigade === n);
     const st = rp.length ? badge('✓ ' + rp.length, 'ok') + (rp.some(r => r.problems) ? ' ' + badge('⚠', 'warn') : '') : (t.length ? badge('немає', 'bad') : '<span class="mute">—</span>');
-    return [brName(n).replace(' · резерв', ' (рез.)'), t.map(x => esc(objShort(x.objectId))).join('<br>') || '<span class="mute">без завдання</span>', st];
+    const b = brigadeOf(ym(d), n) || {}, mem = brigadeMembers(b);
+    const crew = mem.length ? `<div class="small brcrew">${mem.map(id => { const p = get('Персонал', id) || {}; return esc(shortName(p.pib || '—')) + (id === b.leaderId ? ' <span class="mute">(ст.)</span>' : '') + (truthy(p.isDriver) ? ' 🚐' : ''); }).join('<br>')}</div>` : '<div class="small mute">склад не призначено</div>';
+    return [`<b>${brName(n).replace(' · резерв', ' (рез.)')}</b>${crew}`, t.map(x => esc(objShort(x.objectId))).join('<br>') || '<span class="mute">без завдання</span>', st];
   })), `<a class="small" href="#/mon">Моніторинг ›</a>`);
 
   const al = alerts();
   if (al.length) h += card('Потребує уваги', `<ul class="alerts">${al.map(a => `<li class="${a.cls}"><a href="${a.href}">${a.text}</a></li>`).join('')}</ul>`);
 
-  const news = all('Новини').slice().sort((a, b) => String(b.date).localeCompare(String(a.date))).slice(0, 3);
-  h += card('Новини', news.length ? news.map(n => `<a class="item" href="#/news"><b>${esc(n.title)}</b><span class="mute small">${uaDate(n.date)}</span><p class="clamp">${esc(n.text)}</p></a>`).join('') : empty('Новин немає'), `<a class="small" href="#/news">Усі ›</a>`);
   return page('Портал ВЛНК', h);
 };
 
