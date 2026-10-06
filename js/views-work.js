@@ -89,7 +89,7 @@ function taskItem(t) {
   const plan = planOf(t);
   return `<div class="item"><a class="item-link" href="${href}">
     <div class="row between"><b>${esc(o ? o.short : '—')}</b>${badge(esc(status), st)}</div>
-    ${isLead() && t.dateFrom ? `<div class="tdrow">${taskDates(t)}${objDocsBtn(t)}</div>` : taskDates(t)}
+    ${isLead() && t.dateFrom ? `<div class="tdrow">${taskDates(t)}${objDocsBtn(t)}${pmmBtn(t)}</div>` : taskDates(t)}
     ${objMeta(o)}
     <span class="small mute">${esc(t.workType || '')}${t.requestNo ? (t.workType ? ' · ' : '') + 'заявка № ' + esc(t.requestNo) : ''}${t.orderNo ? ' · наказ № ' + esc(t.orderNo) : ''}</span>
     <span class="small">${methodsOf(t.methods).map(x => badge(esc(x))).join(' ')} ${t.diameters ? 'Ø ' + esc(arr(t.diameters).join(', ')) : ''}</span>
@@ -392,6 +392,110 @@ FORMS.objdocs = async (d, id) => {
   for (const r of res.tabNos || []) { const p = get('Персонал', r.id); if (p) await applyLocal('Персонал', { ...p, tabNo: r.tabNo }); }
   delete UI.draft['objdocs']; UI.dirty = false;
   savedMsg('Звіти сформовано й надіслано на ' + email); history.back();
+};
+// ═════════ СПИСАННЯ ПММ ЕЛЕКТРОСТАНЦІЇ ═════════
+/** «Кушнір Сергій Миколайович» → «Сергій КУШНІР». */
+const nameSur = pib => { const a = String(pib || '').trim().split(/\s+/); return a.length >= 2 ? a[1] + ' ' + a[0].toUpperCase() : String(pib || '').trim(); };
+const num2 = v => Math.round(num(v) * 100) / 100;
+function pmmDocOf(t) {
+  const ds = all('СписанняПММ').filter(d => d.taskId === t.id).sort((x, y) => num(y.sentAt) - num(x.sentAt));
+  const exact = ds.find(d => d.dateFrom === t.dateFrom && d.dateTo === (t.dateTo || t.dateFrom));
+  return exact ? { doc: exact, exact: true } : ds[0] ? { doc: ds[0], exact: false } : null;
+}
+function pmmBtn(t) {
+  const sd = pmmDocOf(t);
+  return `<span role="button" tabindex="0" class="btn small ${sd && sd.exact ? 'ghost' : 'primary'} tdbtn" data-act="pmm" data-id="${esc(t.id)}" title="Акт на списання ПММ і відомість використання ПММ електростанції"><i>${sd && sd.exact ? '✓' : '⛽'}</i>Списання ПММ</span>`;
+}
+ACTS.pmm = d => go('#/pmm/' + d.id);
+/** Дані для списання ПММ: роботи електростанцій за щоденними звітами обʼєкта в період завдання. */
+function pmmData(t) {
+  const from = t.dateFrom, to = t.dateTo || t.dateFrom;
+  const b = brigadeOf(t.month || ym(from), t.brigade) || {};
+  const reps = all('Звіти').filter(r => r.objectId === t.objectId && r.date >= from && r.date <= to && r.genId && !truthy(r.travel) && (num(r.genHours) || num(r.genRefuel)))
+    .sort((x, y) => String(x.date).localeCompare(String(y.date)));
+  const leaderId = b.leaderId || brigadeMembers(b)[0] || (reps[0] && reps[0].authorId) || '';
+  const by = {};
+  reps.forEach(r => (by[r.genId] = by[r.genId] || []).push(r));
+  const gens = Object.keys(by).map(gid => {
+    const g = get('Генератори', gid) || { name: '—' };
+    const days = {}, refs = {};
+    by[gid].forEach(r => {
+      const nr = genNorm(g, r.date), h = num(r.genHours), cons = h * nr;
+      const d = days[r.date] = days[r.date] || { date: r.date, hours: 0, used: 0 };
+      d.hours += h; d.used += cons;
+      const ref = r.genRefuel === '' || r.genRefuel == null ? cons : num(r.genRefuel);
+      if (ref > 0) refs[r.date] = (refs[r.date] || 0) + ref;
+    });
+    const rows = Object.values(days).filter(d => d.hours > 0).map(d => ({ date: d.date, hours: num2(d.hours), used: num2(d.used) }));
+    const refuels = Object.keys(refs).sort().map(d => ({ date: d, liters: num2(refs[d]) }));
+    const norms = [...new Set(by[gid].map(r => genNorm(g, r.date)).filter(Boolean))].map(n => String(n).replace('.', ','));
+    const fuel = by[gid].map(r => r.genFuel).find(Boolean) || g.fuel || 'ДП';
+    return { id: gid, name: g.name || '', invNo: g.invNo || '', fuel, normText: norms.join(' / '), rows, refuels,
+      hours: num2(rows.reduce((a, w) => a + w.hours, 0)), used: num2(rows.reduce((a, w) => a + w.used, 0)), refuel: num2(refuels.reduce((a, w) => a + w.liters, 0)) };
+  });
+  return { from, to, b, leaderId, gens, reps };
+}
+ROUTES.pmm = id => {
+  if (!isLead()) return denied();
+  const t = get('Завдання', id); if (!t) return notFound();
+  const o = get('Обʼєкти', t.objectId) || {};
+  const x = pmmData(t);
+  const sd = pmmDocOf(t);
+  const so = splitOrder(periodOrder(t));
+  let h = card(`${esc(o.short || '—')} · ${uaDate(x.from)} – ${uaDate(x.to)}`, (o.name ? `<p class="objfull">${esc(o.name)}</p>` : '') + kv([
+    ['Період', `${uaDate(x.from)} – ${uaDate(x.to)}`],
+    ['Відповідальний виконавець / підзвітна особа', x.leaderId ? esc(nameSur(personName(x.leaderId))) + ' <span class="small mute">старший бригади</span>' : '<span class="warn">не визначено — призначте старшого бригади</span>'],
+    ['Матеріально відповідальна особа', o.contact ? esc(nameSur(o.contact)) + ' <span class="small mute">відповідальний від замовника</span>' : '<span class="warn">не вказано відповідального від замовника</span>'],
+    ['ТОРО-замовлення / підзамовлення', esc((o.soOrder || '—') + ' / ' + (o.soSubOrder || '—'))]
+  ]) + (sd ? `<p class="small mute">${sd.exact ? '✓ Уже сформовано' : '⚠ Формувалось на ' + uaDate(sd.doc.dateFrom) + ' – ' + uaDate(sd.doc.dateTo) + ', дати змінились'}: ${esc(fmtDT(sd.doc.sentAt))}, ${esc(sd.doc.email || '')}${arr(sd.doc.files).map(f => f && f.url ? ` · <a href="${esc(f.url)}" target="_blank" rel="noopener">${esc(/^Акт/.test(f.name) ? 'акт' : 'відомість')} ↗</a>` : '').join('')}</p>` : ''));
+  if (!x.gens.length) h += `<div class="note warn">У щоденних звітах по цьому обʼєкту за ${uaDate(x.from)} – ${uaDate(x.to)} немає роботи електростанції (мотогодин або заправок). Списувати нічого.</div>`;
+  x.gens.forEach(g => {
+    h += card(`⚡ ${esc(g.name)}${g.invNo ? ' · інв. № ' + esc(g.invNo) : ''}`, kv([
+      ['Паливо', esc(g.fuel)], ['Норма, л/мотогод', esc(g.normText || '—')],
+      ['Відпрацьовано', fmtN(g.hours) + ' мотогод за ' + g.rows.length + ' ' + plural(g.rows.length, 'день', 'дні', 'днів')],
+      ['Використано за нормою', fmtN3(g.used) + ' л'], ['Заправлено', fmtN3(g.refuel) + ' л' + (g.refuels.length ? ' (' + g.refuels.map(r => uaDate(r.date).slice(0, 5) + ': ' + fmtN3(r.liters)).join(', ') + ')' : '')],
+      ['Різниця (заправлено − використано)', `<b class="${num2(g.refuel - g.used) < 0 ? 'bad' : ''}">${fmtN3(num2(g.refuel - g.used))} л</b>`]
+    ]) + (!num(g.normText.replace(',', '.')) ? '<p class="small warn">У картці електростанції не задано норму витрати — використано буде 0.</p>' : ''));
+  });
+  if (x.gens.length) {
+    const d = UI.draft['pmm'] || { orderNo: so.no, orderDate: so.date, email: setting('docsEmail', ''), remember: true };
+    h += card('Підтвердження формування', form('pmm', id,
+      `<div class="grid2">${fInp('№ наказу (підстава у відомості)', 'orderNo', d.orderNo)}${fInp('Дата наказу', 'orderDate', d.orderDate, { type: 'date' })}</div>` +
+      fInp('Email, на який надіслати документи', 'email', d.email, { type: 'email', req: true, ph: 'name@example.com' }) +
+      fChk('Запамʼятати email', 'remember', d.remember) +
+      `<p class="small mute">Для кожної електростанції буде сформовано 2 документи за шаблонами: акт на списання ПММ (docx) і відомість використання ПММ (xlsx). Файли збережуться на Google Диску в папці «Списання ПММ / ${esc(x.from.slice(0, 7))}» і прийдуть листом на вказаний email.</p>`,
+      { submit: 'Сформувати й надіслати' }));
+  }
+  return page('Списання ПММ', h, '#/plan');
+};
+ONCHANGE.pmm = d => { UI.draft['pmm'] = d; };
+FORMS.pmm = async (d, id) => {
+  const t = get('Завдання', id); if (!t) return toast('Завдання не знайдено');
+  const o = get('Обʼєкти', t.objectId) || {};
+  const x = pmmData(t);
+  if (!x.gens.length) return toast('Немає роботи електростанції у звітах');
+  const email = String(d.email || '').trim();
+  if (!/^[^\s@,;]+@[^\s@,;]+\.[^\s@,;]+$/.test(email)) return toast('Вкажіть коректний email');
+  if (d.remember) { const cur = all('Налаштування').find(r => r.key === 'docsEmail'); if (!cur || String(cur.value) !== email) await save('Налаштування', cur ? { ...cur, value: email } : { key: 'docsEmail', value: email }); }
+  const pmm = {
+    taskId: t.id, from: x.from, to: x.to, orderNo: String(d.orderNo || '').trim(), orderDate: d.orderDate || '', email,
+    leader: x.leaderId ? nameSur(personName(x.leaderId)) : '', mvo: o.contact ? nameSur(o.contact) : '',
+    object: { id: o.id, short: o.short || '', name: o.name || o.short || '', soOrder: o.soOrder || '', soSubOrder: o.soSubOrder || '' },
+    gens: x.gens.map(g => ({ name: g.name, invNo: g.invNo, fuel: g.fuel, normText: g.normText, used: g.used, rows: g.rows, refuels: g.refuels }))
+  };
+  if (MODE === 'demo') {
+    await save('СписанняПММ', { taskId: t.id, objectId: o.id, dateFrom: x.from, dateTo: x.to, gens: JSON.stringify(x.gens.map(g => g.name)), email, files: '[]', authorId: ME.personId || '', sentAt: Date.now() });
+    delete UI.draft['pmm']; UI.dirty = false;
+    await ask(`ДЕМО: у робочій версії буде сформовано й надіслано на ${email}:\n\n${x.gens.map(g => `📎 Акт списання ПММ — ${g.name}.docx\n📎 Відомість ПММ — ${g.name}.xlsx\n   ${fmtN(g.hours)} мотогод, використано ${fmtN3(g.used)} л ${g.fuel}, заправлено ${fmtN3(g.refuel)} л`).join('\n\n')}`, 'Зрозуміло', 'Закрити');
+    return go('#/plan');
+  }
+  if (!navigator.onLine) return toast('Потрібен інтернет: документи формуються на сервері');
+  toast('Формую документи…');
+  const res = await api({ action: 'genpmm', pmm }, 180000).catch(e => ({ ok: false, error: e.name === 'AbortError' ? 'сервер не відповів вчасно' : e.message }));
+  if (!res.ok) return toast('Не вдалося сформувати: ' + (res.error === 'Невідома дія' ? 'оновіть серверну частину порталу' : res.error));
+  await applyLocal('СписанняПММ', res.row);
+  delete UI.draft['pmm']; UI.dirty = false;
+  savedMsg('Списання ПММ сформовано й надіслано на ' + email); history.back();
 };
 // ── формування СЗ і відомості проживання на період вахти
 function shiftData(n, from, to) {
