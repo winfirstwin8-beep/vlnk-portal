@@ -433,7 +433,11 @@ function pmmData(t) {
     return { id: gid, name: g.name || '', invNo: g.invNo || '', fuel, normText: norms.join(' / '), rows, refuels,
       hours: num2(rows.reduce((a, w) => a + w.hours, 0)), used: num2(rows.reduce((a, w) => a + w.used, 0)), refuel: num2(refuels.reduce((a, w) => a + w.liters, 0)) };
   });
-  return { from, to, b, leaderId, gens, reps };
+  // номер і дата акта та відомості — наступний день після останнього робочого дня на обʼєкті (за звітами, інакше — кінець завдання)
+  const work = all('Звіти').filter(r => r.objectId === t.objectId && r.date >= from && r.date <= to && !truthy(r.travel)).map(r => r.date).sort();
+  const lastDay = work.length ? work[work.length - 1] : to;
+  const docDate = addDays(lastDay, 1);
+  return { from, to, b, leaderId, gens, reps, lastDay, docDate };
 }
 ROUTES.pmm = id => {
   if (!isLead()) return denied();
@@ -446,7 +450,8 @@ ROUTES.pmm = id => {
     ['Період', `${uaDate(x.from)} – ${uaDate(x.to)}`],
     ['Відповідальний виконавець / підзвітна особа', x.leaderId ? esc(nameSur(personName(x.leaderId))) + ' <span class="small mute">старший бригади</span>' : '<span class="warn">не визначено — призначте старшого бригади</span>'],
     ['Матеріально відповідальна особа', o.contact ? esc(nameSur(o.contact)) + ' <span class="small mute">відповідальний від замовника</span>' : '<span class="warn">не вказано відповідального від замовника</span>'],
-    ['ТОРО-замовлення / підзамовлення', esc((o.soOrder || '—') + ' / ' + (o.soSubOrder || '—'))]
+    ['ТОРО-замовлення / підзамовлення', esc((o.soOrder || '—') + ' / ' + (o.soSubOrder || '—'))],
+    ['№ і дата акта та відомості', `№ <b>${uaDate(x.docDate).slice(0, 5)}</b> від <b>${uaDate(x.docDate)}</b> <span class="small mute">наступний день після останнього дня робіт (${uaDate(x.lastDay)})</span>`]
   ]) + (sd ? `<p class="small mute">${sd.exact ? '✓ Уже сформовано' : '⚠ Формувалось на ' + uaDate(sd.doc.dateFrom) + ' – ' + uaDate(sd.doc.dateTo) + ', дати змінились'}: ${esc(fmtDT(sd.doc.sentAt))}, ${esc(sd.doc.email || '')}${arr(sd.doc.files).map(f => f && f.url ? ` · <a href="${esc(f.url)}" target="_blank" rel="noopener">${esc(/^Акт/.test(f.name) ? 'акт' : 'відомість')} ↗</a>` : '').join('')}</p>` : ''));
   if (!x.gens.length) h += `<div class="note warn">У щоденних звітах по цьому обʼєкту за ${uaDate(x.from)} – ${uaDate(x.to)} немає роботи електростанції (мотогодин або заправок). Списувати нічого.</div>`;
   x.gens.forEach(g => {
@@ -463,7 +468,7 @@ ROUTES.pmm = id => {
       `<div class="grid2">${fInp('№ наказу (підстава у відомості)', 'orderNo', d.orderNo)}${fInp('Дата наказу', 'orderDate', d.orderDate, { type: 'date' })}</div>` +
       fInp('Email, на який надіслати документи', 'email', d.email, { type: 'email', req: true, ph: 'name@example.com' }) +
       fChk('Запамʼятати email', 'remember', d.remember) +
-      `<p class="small mute">Для кожної електростанції буде сформовано 2 документи за шаблонами: акт на списання ПММ (docx) і відомість використання ПММ (xlsx). Файли збережуться на Google Диску в папці «Списання ПММ / ${esc(x.from.slice(0, 7))}» і прийдуть листом на вказаний email.</p>`,
+      `<p class="small mute">Для кожної електростанції буде сформовано 2 документи за шаблонами: акт на списання ПММ (docx, А4 книжкова, односторонній друк) і відомість використання ПММ (xlsx, А4 книжкова, двосторонній друк: заправка — з лицьового боку, витрати — зі зворотного). Файли збережуться на Google Диску в папці «Списання ПММ / ${esc(x.from.slice(0, 7))}» і прийдуть листом на вказаний email.</p>`,
       { submit: 'Сформувати й надіслати' }));
   }
   return page('Списання ПММ', h, '#/plan');
@@ -478,7 +483,7 @@ FORMS.pmm = async (d, id) => {
   if (!/^[^\s@,;]+@[^\s@,;]+\.[^\s@,;]+$/.test(email)) return toast('Вкажіть коректний email');
   if (d.remember) { const cur = all('Налаштування').find(r => r.key === 'docsEmail'); if (!cur || String(cur.value) !== email) await save('Налаштування', cur ? { ...cur, value: email } : { key: 'docsEmail', value: email }); }
   const pmm = {
-    taskId: t.id, from: x.from, to: x.to, orderNo: String(d.orderNo || '').trim(), orderDate: d.orderDate || '', email,
+    taskId: t.id, from: x.from, to: x.to, docDate: x.docDate, orderNo: String(d.orderNo || '').trim(), orderDate: d.orderDate || '', email,
     leader: x.leaderId ? nameSur(personName(x.leaderId)) : '', mvo: o.contact ? nameSur(o.contact) : '',
     object: { id: o.id, short: o.short || '', name: o.name || o.short || '', soOrder: o.soOrder || '', soSubOrder: o.soSubOrder || '' },
     gens: x.gens.map(g => ({ name: g.name, invNo: g.invNo, fuel: g.fuel, normText: g.normText, used: g.used, rows: g.rows, refuels: g.refuels }))
