@@ -408,6 +408,17 @@ function pmmBtn(t) {
 }
 ACTS.pmm = d => go('#/pmm/' + d.id);
 /** Дані для списання ПММ: роботи електростанцій за щоденними звітами обʼєкта в період завдання. */
+/** Залишок на кінець (K42) останньої відомості цієї електростанції по попередньому обʼєкту — це залишок на початок. */
+function pmmPrevEnd(gid, t, from) {
+  let best = null;
+  all('СписанняПММ').forEach(d => {
+    if (d.taskId === t.id || !(String(d.dateFrom) < from)) return;
+    const g = arr(d.gens).find(x => x && typeof x === 'object' && x.id === gid);
+    if (!g || g.end === undefined) return;
+    if (!best || String(d.dateTo) > String(best.d.dateTo) || (d.dateTo === best.d.dateTo && num(d.sentAt) > num(best.d.sentAt))) best = { d, g };
+  });
+  return best ? { end: num2(best.g.end), objectId: best.d.objectId, from: best.d.dateFrom, to: best.d.dateTo } : { end: 0 };
+}
 function pmmData(t) {
   const from = t.dateFrom, to = t.dateTo || t.dateFrom;
   const b = brigadeOf(t.month || ym(from), t.brigade) || {};
@@ -430,7 +441,8 @@ function pmmData(t) {
     const refuels = Object.keys(refs).sort().map(d => ({ date: d, liters: num2(refs[d]) }));
     const norms = [...new Set(by[gid].map(r => genNorm(g, r.date)).filter(Boolean))].map(n => String(n).replace('.', ','));
     const fuel = by[gid].map(r => r.genFuel).find(Boolean) || g.fuel || 'ДП';
-    return { id: gid, name: g.name || '', invNo: g.invNo || '', fuel, normText: norms.join(' / '), rows, refuels,
+    const prev = pmmPrevEnd(gid, t, from);
+    return { id: gid, name: g.name || '', invNo: g.invNo || '', fuel, normText: norms.join(' / '), rows, refuels, start: prev.end, prev,
       hours: num2(rows.reduce((a, w) => a + w.hours, 0)), used: num2(rows.reduce((a, w) => a + w.used, 0)), refuel: num2(refuels.reduce((a, w) => a + w.liters, 0)) };
   });
   // номер і дата акта та відомості — наступний день після останнього робочого дня на обʼєкті (за звітами, інакше — кінець завдання)
@@ -458,8 +470,9 @@ ROUTES.pmm = id => {
     h += card(`⚡ ${esc(g.name)}${g.invNo ? ' · інв. № ' + esc(g.invNo) : ''}`, kv([
       ['Паливо', esc(g.fuel)], ['Норма, л/мотогод', esc(g.normText || '—')],
       ['Відпрацьовано', fmtN(g.hours) + ' мотогод за ' + g.rows.length + ' ' + plural(g.rows.length, 'день', 'дні', 'днів')],
+      ['Залишок на початок', fmtN3(g.start) + ' л ' + (g.prev.objectId ? `<span class="small mute">з відомості по «${esc(objShort(g.prev.objectId))}» (${uaDate(g.prev.from)} – ${uaDate(g.prev.to)})</span>` : '<span class="small mute">попередньої відомості для цієї електростанції немає</span>')],
       ['Використано за нормою', fmtN3(g.used) + ' л'], ['Заправлено', fmtN3(g.refuel) + ' л' + (g.refuels.length ? ' (' + g.refuels.map(r => uaDate(r.date).slice(0, 5) + ': ' + fmtN3(r.liters)).join(', ') + ')' : '')],
-      ['Різниця (заправлено − використано)', `<b class="${num2(g.refuel - g.used) < 0 ? 'bad' : ''}">${fmtN3(num2(g.refuel - g.used))} л</b>`]
+      ['Залишок на кінець (початок + заправлено − використано)', `<b class="${num2(g.start + g.refuel - g.used) < 0 ? 'bad' : ''}">${fmtN3(num2(g.start + g.refuel - g.used))} л</b>`]
     ]) + (!num(g.normText.replace(',', '.')) ? '<p class="small warn">У картці електростанції не задано норму витрати — використано буде 0.</p>' : ''));
   });
   if (x.gens.length) {
@@ -486,10 +499,10 @@ FORMS.pmm = async (d, id) => {
     taskId: t.id, from: x.from, to: x.to, docDate: x.docDate, orderNo: String(d.orderNo || '').trim(), orderDate: d.orderDate || '', email,
     leader: x.leaderId ? nameSur(personName(x.leaderId)) : '', mvo: o.contact ? nameSur(o.contact) : '',
     object: { id: o.id, short: o.short || '', name: o.name || o.short || '', soOrder: o.soOrder || '', soSubOrder: o.soSubOrder || '' },
-    gens: x.gens.map(g => ({ name: g.name, invNo: g.invNo, fuel: g.fuel, normText: g.normText, used: g.used, rows: g.rows, refuels: g.refuels }))
+    gens: x.gens.map(g => ({ id: g.id, name: g.name, invNo: g.invNo, fuel: g.fuel, normText: g.normText, start: g.start, used: g.used, rows: g.rows, refuels: g.refuels }))
   };
   if (MODE === 'demo') {
-    await save('СписанняПММ', { taskId: t.id, objectId: o.id, dateFrom: x.from, dateTo: x.to, gens: JSON.stringify(x.gens.map(g => g.name)), email, files: '[]', authorId: ME.personId || '', sentAt: Date.now() });
+    await save('СписанняПММ', { taskId: t.id, objectId: o.id, dateFrom: x.from, dateTo: x.to, gens: JSON.stringify(x.gens.map(g => ({ id: g.id, name: g.name, start: g.start, end: num2(g.start + g.refuel - g.used) }))), email, files: '[]', authorId: ME.personId || '', sentAt: Date.now() });
     delete UI.draft['pmm']; UI.dirty = false;
     await ask(`ДЕМО: у робочій версії буде сформовано й надіслано на ${email}:\n\n${x.gens.map(g => `📎 Акт списання ПММ — ${g.name}.docx\n📎 Відомість ПММ — ${g.name}.xlsx\n   ${fmtN(g.hours)} мотогод, використано ${fmtN3(g.used)} л ${g.fuel}, заправлено ${fmtN3(g.refuel)} л`).join('\n\n')}`, 'Зрозуміло', 'Закрити');
     return go('#/plan');
