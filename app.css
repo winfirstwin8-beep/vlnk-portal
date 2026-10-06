@@ -335,3 +335,5 @@ details.fold[open] > summary { margin-bottom: 8px; }
 .dptab tr>th:first-child{position:sticky;left:0;z-index:1;background:var(--card);box-shadow:1px 0 0 var(--line)}
 .dptab thead tr>th:first-child,.dptab tr.tot>th:first-child{background:var(--line)}
 .dptab.edit input{font-size:16px}
+
+.brcrew{margin-top:2px;line-height:1.35;font-weight:400}
