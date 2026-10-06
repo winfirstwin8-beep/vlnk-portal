@@ -337,3 +337,5 @@ details.fold[open] > summary { margin-bottom: 8px; }
 .dptab.edit input{font-size:16px}
 
 .brcrew{margin-top:2px;line-height:1.35;font-weight:400}
+
+.note.okbox{background:color-mix(in srgb,#2e9e5b 14%,transparent);border-left:4px solid #2e9e5b}
