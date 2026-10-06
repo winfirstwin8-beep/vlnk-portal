@@ -107,7 +107,7 @@ function taskObjCard(oid, t) {
       ['Табельний № відповідального', esc(respTab(o)) || (o.contact ? '<span class="mute">—</span>' : '')],
       ['Телефон', ph ? `<a class="tel" href="tel:${esc(ph.replace(/[^\d+]/g, ''))}">📞 ${esc(ph)}</a>` : ''],
       ['ТОРО-замовлення', esc(o.soOrder)], ['ТОРО-підзамовлення', esc(o.soSubOrder)], ['№ ICP', esc(o.icp)]])}
-    ${t ? `<div class="crew">${taskCrewHtml(t)}</div>` : ''}</div>`;
+    ${t ? `<div class="crew">${taskCrewHtml(t)}</div>${dayPlanTable(t, { compact: true })}` : ''}</div>`;
 }
 ROUTES.taskform = (id = 'new', brig) => {
   if (!isLead()) return denied();
@@ -286,6 +286,118 @@ function shiftHead(s, lead) {
     <div class="small">${st}</div>
     ${lead ? `<a class="btn small ${sd && sd.exact ? 'ghost' : 'primary'}" href="#/shiftdocs/${esc(s.brigade)}/${s.from}/${s.to}">${sd && sd.exact ? 'Сформувати повторно' : 'Сформувати СЗ і відомість'}</a>` : ''}</div>`;
 }
+// ═════════ ПЛАН РОБІТ ПО ДНЯХ ═════════
+const WD_SHORT = ['нд', 'пн', 'вт', 'ср', 'чт', 'пт', 'сб'];
+/** Дні періоду завдання. */
+function taskDayList(t) {
+  const a = t.dateFrom, z = t.dateTo || t.dateFrom, out = [];
+  if (!a) return out;
+  for (let d = a; d <= z && out.length < 62; d = addDays(d, 1)) out.push(d);
+  return out;
+}
+/** Методи, які показуємо в плані по днях: методи завдання + ті, що мають план або факт. */
+function dayPlanKeys(t, rows, reps) {
+  const ks = new Set(methodsOf(t.methods).map(m => MKEY[m]).filter(Boolean));
+  Object.keys(planOf(t)).forEach(k => ks.add(k));
+  rows.forEach(r => MKEYS.forEach(k => { if (num(r[k])) ks.add(k); }));
+  reps.forEach(r => MKEYS.forEach(k => { if (num(r[k])) ks.add(k); }));
+  return MKEYS.filter(k => ks.has(k));
+}
+const dayPlanRows = t => all('ПланДнів').filter(r => r.taskId === t.id);
+const taskReps = t => all('Звіти').filter(r => (r.taskId === t.id || (!r.taskId && r.objectId === t.objectId)) && !isSummary(r) && r.date >= t.dateFrom && r.date <= (t.dateTo || t.dateFrom));
+/** Таблиця «план / факт по днях» для розгорнутої картки обʼєкта. */
+function dayPlanTable(t, o = {}) {
+  const days = taskDayList(t); if (!days.length) return '';
+  const rows = dayPlanRows(t), reps = taskReps(t);
+  const keys = dayPlanKeys(t, rows, reps);
+  const byD = Object.fromEntries(rows.map(r => [r.date, r]));
+  const td = today();
+  const hasPlan = rows.some(r => MKEYS.some(k => num(r[k])) || String(r.note || '').trim());
+  if (!hasPlan && o.compact) return `<div class="dayplan"><div class="row between"><b class="small">План робіт по днях</b>${isLead() ? `<a class="small" href="#/dayplan/${esc(t.id)}">Скласти план ›</a>` : ''}</div><p class="small mute">План по днях ще не складено.</p></div>`;
+  const tot = Object.fromEntries(keys.map(k => [k, { p: 0, f: 0 }]));
+  const body = days.map(d => {
+    const r = byD[d] || {}, rs = reps.filter(x => x.date === d);
+    const travel = rs.length && rs.every(x => truthy(x.travel));
+    const cells = keys.map(k => {
+      const p = num(r[k]), f = rs.reduce((a, x) => a + num(x[k]), 0);
+      tot[k].p += p; tot[k].f += f;
+      const cls = d < td && p ? (f >= p ? 'ok' : 'bad') : '';
+      return `<td class="${cls}">${p ? `<b>${fmtN(p)}</b>` : '<span class="mute">—</span>'}${f || (d <= td && p) ? `<small>ф ${fmtN(f)}</small>` : ''}</td>`;
+    }).join('');
+    const wd = new Date(d + 'T12:00:00').getDay();
+    return `<tr class="${d === td ? 'td' : ''}${wd === 0 || wd === 6 ? ' we' : ''}"><th>${uaDate(d).slice(0, 5)}<small>${WD_SHORT[wd]}</small></th>${cells}<td class="dpn">${esc(r.note || '')}${travel ? ' <span class="mute">🚐 дорога</span>' : ''}</td></tr>`;
+  }).join('');
+  const plan = planOf(t);
+  const foot = `<tr class="tot"><th>Разом</th>${keys.map(k => `<td><b>${fmtN(tot[k].p)}</b><small>ф ${fmtN(tot[k].f)}${plan[k] ? ' · завд. ' + fmtN(plan[k]) : ''}</small></td>`).join('')}<td></td></tr>`;
+  return `<div class="dayplan"><div class="row between"><b class="small">План робіт по днях</b>${isLead() ? `<a class="small" href="#/dayplan/${esc(t.id)}">${hasPlan ? 'Змінити план' : 'Скласти план'} ›</a>` : ''}</div>
+    <div class="dpwrap"><table class="dptab"><thead><tr><th>День</th>${keys.map(k => `<th>${esc(MSHORT[k])}<small>${MU(k)}</small></th>`).join('')}<th>Роботи / примітка</th></tr></thead><tbody>${body}${foot}</tbody></table></div>
+    <p class="small mute">Жирним — план на день, «ф» — факт зі щоденних звітів. Зелене — виконано, червоне — не виконано (для минулих днів).</p></div>`;
+}
+ROUTES.dayplan = id => {
+  if (!isLead()) return denied();
+  const t = get('Завдання', id); if (!t) return notFound();
+  const o = get('Обʼєкти', t.objectId) || {};
+  const days = taskDayList(t);
+  if (!days.length) return page('План по днях', empty('У завдання не вказано дати'), '#/taskform/' + id);
+  const rows = dayPlanRows(t), reps = taskReps(t);
+  let keys = dayPlanKeys(t, rows, reps);
+  if (!keys.length) keys = ['rt', 'vt'];
+  const key = 'dayplan:' + id;
+  const byD = Object.fromEntries(rows.map(r => [r.date, r]));
+  const d = UI.draft[key] || Object.fromEntries(days.flatMap(dd => [...keys.map(k => ['p_' + dd + '_' + k, num((byD[dd] || {})[k]) || '']), ['n_' + dd, (byD[dd] || {}).note || '']]));
+  const plan = planOf(t);
+  const head = `<p class="small">${esc(o.short || '')} · ${brName(t.brigade)} · ${uaDate(t.dateFrom)} – ${uaDate(t.dateTo)}</p>` +
+    (Object.keys(plan).length ? `<p class="small mute">План завдання: ${Object.entries(plan).map(([k, v]) => esc(MSHORT[k]) + ' ' + fmtN(v) + ' ' + MU(k)).join(' · ')}</p>` : '<p class="small mute">У завданні не задано плановий обсяг — впишіть план по днях вручну.</p>') +
+    `<div class="row gap">${Object.keys(plan).length ? `<button type="button" class="btn small ghost" data-act="dpdist" data-id="${esc(id)}">Розподілити план завдання рівномірно</button>` : ''}<button type="button" class="btn small ghost" data-act="dpclear" data-id="${esc(id)}">Очистити</button></div>`;
+  const grid = `<div class="dpwrap"><table class="dptab edit"><thead><tr><th>День</th>${keys.map(k => `<th>${esc(MSHORT[k])}<small>${MU(k)}</small></th>`).join('')}<th>Роботи / примітка</th></tr></thead><tbody>` +
+    days.map(dd => { const wd = new Date(dd + 'T12:00:00').getDay(); return `<tr class="${wd === 0 || wd === 6 ? 'we' : ''}"><th>${uaDate(dd).slice(0, 5)}<small>${WD_SHORT[wd]}</small></th>${keys.map(k => `<td><input type="number" inputmode="decimal" min="0" step="any" name="p_${dd}_${k}" value="${esc(d['p_' + dd + '_' + k] ?? '')}"></td>`).join('')}<td><input type="text" name="n_${dd}" value="${esc(d['n_' + dd] || '')}" placeholder="напр. RT ділянка 1"></td></tr>`; }).join('') +
+    `</tbody></table></div><p class="small mute" id="dpsum"></p>`;
+  setTimeout(() => updDpSum(id), 0);
+  return page('План робіт по днях', card('Обʼєкт', head) + card('План по днях', form('dayplan', id, grid, { submit: 'Зберегти план' })), '#/taskform/' + id);
+};
+function updDpSum(id) {
+  const t = get('Завдання', id), f = $('form[data-form=dayplan]'), el = $('#dpsum'); if (!t || !f || !el) return;
+  const d = formData(f), plan = planOf(t), sums = {};
+  Object.entries(d).forEach(([n, v]) => { const m = n.match(/^p_\d{4}-\d\d-\d\d_(\w+)$/); if (m) sums[m[1]] = (sums[m[1]] || 0) + num(v); });
+  el.innerHTML = 'Разом за планом по днях: ' + Object.entries(sums).map(([k, v]) => `${esc(MSHORT[k])} <b>${fmtN(v)}</b>${plan[k] ? ` <span class="${Math.abs(v - plan[k]) < 0.01 ? 'ok' : 'warn'}">/ ${fmtN(plan[k])}</span>` : ''}`).join(' · ');
+}
+ONCHANGE.dayplan = (d, f) => { UI.draft['dayplan:' + f.dataset.id] = d; updDpSum(f.dataset.id); };
+document.addEventListener('input', e => { const f = e.target.closest && e.target.closest('form[data-form=dayplan]'); if (f) updDpSum(f.dataset.id); });
+ACTS.dpdist = d => {
+  const t = get('Завдання', d.id); if (!t) return;
+  const days = taskDayList(t), plan = planOf(t), f = $('form[data-form=dayplan]');
+  const cur = f ? formData(f) : {};
+  // день у дорозі (за звітами) не плануємо, якщо такі дні вже відомі
+  const reps = taskReps(t);
+  const work = days.filter(dd => { const rs = reps.filter(x => x.date === dd); return !(rs.length && rs.every(x => truthy(x.travel))); });
+  const n = work.length || days.length, list = work.length ? work : days;
+  Object.entries(plan).forEach(([k, T]) => {
+    days.forEach(dd => { cur['p_' + dd + '_' + k] = ''; });
+    if (MU(k) === 'ст.') { const base = Math.floor(T / n); let rest = Math.round(T - base * n); list.forEach(dd => { const v = base + (rest > 0 ? 1 : 0); if (rest > 0) rest--; cur['p_' + dd + '_' + k] = v || ''; }); }
+    else { const per = Math.round(T / n * 10) / 10; let acc = 0; list.forEach((dd, i) => { const v = i === n - 1 ? Math.round((T - acc) * 10) / 10 : per; acc += v; cur['p_' + dd + '_' + k] = v || ''; }); }
+  });
+  UI.draft['dayplan:' + d.id] = cur; UI.dirty = true; render();
+};
+ACTS.dpclear = d => {
+  const f = $('form[data-form=dayplan]'); const cur = f ? formData(f) : {};
+  Object.keys(cur).forEach(k => { cur[k] = ''; });
+  UI.draft['dayplan:' + d.id] = cur; UI.dirty = true; render();
+};
+FORMS.dayplan = async (d, id) => {
+  const t = get('Завдання', id); if (!t) return toast('Завдання не знайдено');
+  const days = taskDayList(t), byD = Object.fromEntries(dayPlanRows(t).map(r => [r.date, r]));
+  let n = 0;
+  for (const dd of days) {
+    const row = { ...(byD[dd] || {}), taskId: t.id, objectId: t.objectId, brigade: t.brigade, date: dd, note: String(d['n_' + dd] || '').trim() };
+    let any = !!row.note, changed = !byD[dd] ? false : String(byD[dd].note || '') !== row.note;
+    MKEYS.forEach(k => { const nm = 'p_' + dd + '_' + k; if (nm in d) { const v = d[nm] === '' ? '' : num(d[nm]); row[k] = v; if (byD[dd] && String(byD[dd][k] ?? '') !== String(v)) changed = true; } if (num(row[k])) any = true; });
+    if (!byD[dd] && !any) continue;   // порожній день без запису — не створюємо
+    if (byD[dd] && !changed) continue;
+    await save('ПланДнів', row); n++;
+  }
+  delete UI.draft['dayplan:' + id]; UI.dirty = false;
+  savedMsg(n ? 'План по днях збережено' : 'Змін немає'); go('#/taskform/' + id);
+};
 // ═════════ ЗВІТИ ДЛЯ ЗАМОВНИКА ЗА ОБʼЄКТОМ ═════════
 /** Останнє формування звітів для завдання (на ці ж дати — exact). */
 /** Повна назва ЛВУМГ: у картці зазвичай лише «Подільське». */

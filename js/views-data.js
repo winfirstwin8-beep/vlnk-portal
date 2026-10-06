@@ -285,6 +285,7 @@ ROUTES.tobj = tid => {
     ['Види робіт', esc(arr(o.workTypes).join(', '))], ['Методи НК', esc(methodsOf(o.methods).join(', '))], ['Примітка', esc(o.note)]
   ]));
   h += card('Бригада та автомобіль', taskCrewHtml(t));
+  if (t.dateFrom) h += card('План робіт по днях · ' + uaDate(t.dateFrom) + ' – ' + uaDate(t.dateTo || t.dateFrom), dayPlanTable(t).replace(/^<div class="dayplan"><div class="row between">[\s\S]*?<\/div>/, '<div class="dayplan">') || empty('План не складено'));
   // усе — за поточний місяць: завдання обʼєкта цього місяця, їх план і звіти за місяць
   const m = ym(today());
   const mFrom = m + '-01', mTo = monthEnd(m);
