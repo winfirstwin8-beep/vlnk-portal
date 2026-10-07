@@ -1266,7 +1266,9 @@ ROUTES.mon = () => {
     const tk = tasksOn(d);
     h += card('Стан бригад', table(['Бригада', 'Завдання', 'Звіт', 'Обсяг'], BRIGADES.map(n => {
       const t = tk.filter(x => +x.brigade === n); const rp = reps.filter(x => +x.brigade === n); const q = agg(rp);
-      return [n === 5 ? '5 (рез.)' : n, t.map(x => esc(objShort(x.objectId))).join('<br>') || '—',
+      const mem = brigadeMembers(brigadeOf(ym(d), n) || {});
+      const crew = mem.map(id => { const off = onVacation(id, d); return off ? `<span class="mute" title="у відпустці">${esc(shortName(personName(id)))} 🌴</span>` : esc(shortName(personName(id))); }).join(', ');
+      return [`<b>${n === 5 ? '5 (рез.)' : n}</b>${crew ? `<div class="small brcrew">${crew}</div>` : '<div class="small mute">склад не призначено</div>'}`, t.map(x => esc(objShort(x.objectId))).join('<br>') || '—',
         rp.length ? rp.map(r => `<a href="#/report/${r.id}">${truthy(r.travel) ? 'переїзд' : '✓'}</a>`).join(' ') : (t.length ? '<span class="bad">немає</span>' : '—'),
         rp.length ? volText(q) : ''];
     })));
