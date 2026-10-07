@@ -347,3 +347,4 @@ details.fold[open] > summary { margin-bottom: 8px; }
 .protovers .pv{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
 .emailchips{margin:-4px 0 8px}
 .emailchips .chip{border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:14px;padding:3px 10px;font-size:12.5px;cursor:pointer}
+.pinrow{flex-wrap:nowrap}.pinrow input{flex:1 1 auto;min-width:0;letter-spacing:2px;font-variant-numeric:tabular-nums}
