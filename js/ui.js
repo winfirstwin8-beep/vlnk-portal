@@ -215,6 +215,14 @@ document.addEventListener('change', e => {
     }).catch(err => toast('Помилка: ' + err.message));
     return;
   }
+  if (el.dataset.calibup && el.files && el.files[0]) {
+    const f = el.files[0]; el.value = '';
+    queueRowFile('Обладнання', el.dataset.calibup, f).then(r => {
+      toast(r === 'saved' ? 'Свідоцтво збережено (демо)' : navigator.onLine ? 'Свідоцтво відправляється…' : 'Свідоцтво збережено на телефоні — відправиться, коли зʼявиться інтернет');
+      render();
+    }).catch(err => toast('Помилка: ' + err.message));
+    return;
+  }
   if (el.dataset.certup && el.files && el.files[0]) {
     const f = el.files[0]; el.value = '';
     queueRowFile('Сертифікати', el.dataset.certup, f).then(r => {

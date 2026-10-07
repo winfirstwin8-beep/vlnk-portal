@@ -1,7 +1,7 @@
 /* Портал ВЛНК — демо-дані (вигадані), лише для ознайомлення без сервера */
 'use strict';
 
-const DEMO_VER = '1.8.53'; // змінювати, коли змінюються демо-дані
+const DEMO_VER = '1.8.54'; // змінювати, коли змінюються демо-дані
 const DEMO_USER = { email: 'demo@vlnk.local', name: 'Гончаренко О.В. (демо)', personId: 'p1', role: 'керівник' };
 
 async function seedDemo() {
@@ -306,7 +306,8 @@ async function seedDemo() {
     const calibTo = i === 7 ? plusDays(20) : i === 10 ? plusDays(-12) : (Number(Y) + 1) + '-0' + (1 + i % 9) + '-01';
     add('Обладнання', { id: 'e' + i, name, method, holderType: ht, holderId: hid, invNo: String(20100 + i), serial: 'S' + (5000 + i * 13), condition: i === 5 ? 'потребує обслуговування' : 'справне',
       calibTo, calibDate: i === 10 ? addDays(plusDays(-12), -365) : addDays(calibTo, -365), calibCert: 'КЛ-' + (2400 + i * 7) + '/' + String(Number(Y) - (i === 10 ? 1 : 0)).slice(2), calibOrg: i % 2 ? 'ДП «Укрметртестстандарт»' : 'ДП «Полтавастандартметрологія»',
-      kit: JSON.stringify(kit), handedAt: ht === 'працівник' ? plusDays(-5) : '' });
+      kit: JSON.stringify(kit), handedAt: ht === 'працівник' ? plusDays(-5) : '',
+      ...(i < 3 ? { file: 'data:application/pdf;base64,' + demoPdf('DEMO Svidotstvo kalibruvannia KL-' + (2400 + i * 7)), fileName: 'Свідоцтво про калібрування № КЛ-' + (2400 + i * 7) + ' — ' + name + '.pdf' } : {}) });
   });
   add('Переміщення', { id: 'mv1', equipId: 'e13', date: plusDays(-5), fromType: 'склад', fromId: '', toType: 'працівник', toId: 'p11', condition: 'справне', note: 'для роботи на обʼєкті', authorId: 'p1' });
   [['RT', 'Рентгенівський апарат', 1], ['RT', 'Негатоскоп', 1], ['RT', 'Денситометр', 1], ['RT', 'Дозиметр', 1], ['UT-W', 'Ультразвуковий дефектоскоп', 1], ['UT-S', 'Ультразвуковий дефектоскоп', 1], ['UTT', 'Товщиномір', 1], ['VT-W', 'Комплект ВОК', 1], ['VT-W', 'Шаблон зварника', 1], ['VT-S', 'Комплект ВОК', 1], ['PT', 'капілярного контролю', 1], ['HB', 'Твердомір', 1]]

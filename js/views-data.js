@@ -792,6 +792,10 @@ const KIT_COND = ['справне', 'несправне', 'відсутнє'];
 const eqMethods = e => String(e.method || '').split(/[,;]+|\s+/).map(x => normM(x.trim())).filter(Boolean);
 /** Обладнання з методом «VT» (без сектора) підходить і до VT-W, і до VT-S. */
 const eqHasMethod = (e, m) => { const ms = eqMethods(e); return ms.includes(m) || ms.includes(m.split('-')[0]); };
+/** Групи для фільтра: RT, VT (VT-W, VT-S), UT (UT-W, UT-S, UTT), PT, HB; «Інше» — без методу або з іншим методом. */
+const EQ_GROUPS = ['RT', 'VT', 'UT', 'PT', 'HB'];
+const eqGroup = m => { const b = String(m || '').toUpperCase(); return b.startsWith('VT') ? 'VT' : b.startsWith('UT') ? 'UT' : EQ_GROUPS.includes(b) ? b : 'Інше'; };
+const eqInGroup = (e, g) => { const gs = eqMethods(e).map(eqGroup); return g === 'Інше' ? !gs.length || gs.every(x => x === 'Інше') : gs.includes(g); };
 const eqKit = e => arr(e.kit).filter(k => k && String(k.name || '').trim());
 function kitSum(e) {
   const k = eqKit(e); if (!k.length) return null;
@@ -830,21 +834,21 @@ ROUTES.equip = () => {
   const all_ = all('Обладнання');
   const q = String(UI.eq || '').toLowerCase(), hf = UI.eh || '', mf = UI.emeth || '', wf = UI.ew || '';
   let list = all_.filter(e => (!q || [e.name, e.invNo, e.serial, e.method, eqKit(e).map(k => k.name).join(' ')].join(' ').toLowerCase().includes(q)));
-  if (mf) list = list.filter(e => eqHasMethod(e, mf));
+  if (mf) list = list.filter(e => eqInGroup(e, mf));
   if (hf === 'склад') list = list.filter(e => !e.holderType || e.holderType === 'склад');
   else if (hf === 'авто') list = list.filter(e => e.holderType === 'авто');
   else if (hf === 'працівник') list = list.filter(e => e.holderType === 'працівник');
   else if (hf) list = list.filter(e => (e.holderType + ':' + e.holderId) === hf);
   if (wf) list = list.filter(e => e.holderType === 'працівник' && e.holderId === wf);
   list.sort((a, b) => String(a.name).localeCompare(String(b.name), 'uk'));
-  const cntM = m => all_.filter(e => eqHasMethod(e, m)).length;
+  const cntM = m => all_.filter(e => eqInGroup(e, m)).length;
   const users = [...new Set(all_.filter(e => e.holderType === 'працівник' && e.holderId).map(e => e.holderId))]
     .map(id => [id, shortName(personName(id)) + ' · ' + all_.filter(e => e.holderType === 'працівник' && e.holderId === id).length]).sort((a, b) => String(a[1]).localeCompare(String(b[1]), 'uk'));
   const placeOpts = [['склад', 'Склад · ' + all_.filter(e => !e.holderType || e.holderType === 'склад').length], ['авто', 'Автомобілі (усі) · ' + all_.filter(e => e.holderType === 'авто').length],
     ...all('Авто').map(c => ['авто:' + c.id, 'Авто: ' + carName(c.id) + ' · ' + all_.filter(e => e.holderType === 'авто' && e.holderId === c.id).length]),
     ['працівник', 'Передано у користування · ' + all_.filter(e => e.holderType === 'працівник').length]];
   h += `<input class="search" type="search" placeholder="Пошук: назва, інв. №, зав. №, комплект" value="${esc(UI.eq || '')}" data-set="eq">`;
-  h += seg('emeth', [['', 'Усі методи'], ...METHODS.map(m => [m, m + ' ' + cntM(m)])], mf).replace('class="seg"', 'class="seg wrap"');
+  h += seg('emeth', [['', 'Усі методи'], ...[...EQ_GROUPS, 'Інше'].map(m => [m, m + ' ' + cntM(m)])], [...EQ_GROUPS, 'Інше', ''].includes(mf) ? mf : '').replace('class="seg"', 'class="seg wrap"');
   h += `<div class="filters">${fSel('Де знаходиться', 'x', placeOpts, hf, { none: 'Усі місця' }).replace('name="x"', 'data-set="eh"')}${fSel('У користуванні', 'y', users, wf, { none: users.length ? 'Усі працівники' : '— нікому не передано —' }).replace('name="y"', 'data-set="ew"')}</div>`;
   if (isLead()) h += fab('#/equipform/new');
   h += `<p class="small mute">Знайдено: ${list.length}</p>`;
@@ -853,7 +857,7 @@ ROUTES.equip = () => {
     return `<div class="item"><a class="item-link" href="#/equipment/${esc(e.id)}"><div class="row between"><b>${esc(e.name)}</b>${eqCond(e)}</div>
       <span class="small mute">інв. ${esc(e.invNo || '—')}${e.serial ? ' · зав. ' + esc(e.serial) : ''}${eqMethods(e).length ? ' · ' + esc(eqMethods(e).join(', ')) : ''}</span>
       <span class="small">📍 ${esc(eqPlace(e))}</span>
-      <span class="small">${ks ? badge('🧩 ' + esc(ks.text), ks.cls) + ' ' : ''}${badge('📏 ' + esc(cal.text), cal.cls)}</span></a>
+      <span class="small">${ks ? badge('🧩 ' + esc(ks.text), ks.cls) + ' ' : ''}${badge('📏 ' + esc(cal.text), cal.cls)}${e.fileId || e.file ? ' ' + badge('📄 свідоцтво') : ''}</span></a>
       <div class="row gap">${canReport() ? `<a class="btn small" href="#/moveform/${esc(e.id)}">Передати</a>` : ''}${isLead() ? `<a class="btn small ghost" href="#/equipform/${esc(e.id)}">Змінити</a>` : ''}</div></div>`;
   }).join('') + (list.length ? more(list.length) : empty('Обладнання не знайдено'));
   return page('Обладнання', h, '#/menu');
@@ -874,11 +878,69 @@ ROUTES.equipment = id => {
     ['Дата калібрування', e.calibDate ? uaDate(e.calibDate) : '—'],
     ['Дійсне до', e.calibTo ? uaDate(e.calibTo) + (validity(e.calibTo).cls !== 'ok' ? ` <span class="small ${validity(e.calibTo).cls}">${esc(validity(e.calibTo).text)}</span>` : '') : '—'],
     ['№ свідоцтва про калібрування', esc(e.calibCert || '—')], ['Ким виконано', esc(e.calibOrg || '—')]
-  ]));
+  ]) + calibFileBlock(e));
   h += card('Комплект' + (ks ? ' · ' + ks.units + ' од.' : ''), kit.length ? `<div class="tblwrap"><table class="tbl kittbl"><thead><tr><th>№</th><th>Найменування</th><th>К-сть</th><th>Зав. №</th><th>Стан</th></tr></thead><tbody>${kit.map((k, i) => `<tr><td>${i + 1}</td><td>${esc(k.name)}</td><td>${num(k.qty) || 1}</td><td>${esc(k.serial || '')}</td><td>${badge(esc(k.condition || 'справне'), k.condition === 'несправне' || k.condition === 'відсутнє' ? 'bad' : 'ok')}</td></tr>`).join('')}</tbody></table></div><p class="small">${badge(esc(ks.text), ks.cls)}</p>` : empty('Склад комплекту не внесено') + (isLead() ? `<a class="small" href="#/equipform/${esc(id)}">Додати склад комплекту ›</a>` : ''));
   const mv = all('Переміщення').filter(m => m.equipId === id).sort((a, b) => String(b.date).localeCompare(String(a.date)));
   h += card('Історія переміщень · ' + mv.length, mv.length ? mv.map(m => `<div class="item"><div class="row between"><span class="small">${esc(holderName(m.fromType, m.fromId))} → <b>${esc(holderName(m.toType, m.toId))}</b></span><span class="small">${uaDate(m.date)}</span></div><span class="small mute">Стан: ${esc(m.condition || '—')}${m.note ? ' · ' + esc(m.note) : ''}${m.authorId ? ' · ' + esc(shortName(personName(m.authorId))) : ''}</span></div>`).join('') : empty('Переміщень не було'));
   return page('Обладнання', h, '#/equip');
+};
+// ── свідоцтво про калібрування: файл, завантаження, надсилання
+function calibFileBlock(e) {
+  const pend = DB.upTasks.has(e.id);
+  const has = !!(e.file || e.fileId) || pend;
+  const off = String(e.file || '').startsWith('data:') || DB.cachedFiles.has(e.fileId) || DB.cachedFiles.has('local-' + e.id);
+  return `${e.fileName ? `<p class="small ordername">📄 ${esc(e.fileName)}${off ? ' <span class="ok">✓ офлайн</span>' : ''}</p>` : '<p class="small mute">Скан свідоцтва не додано.</p>'}
+    <div class="row gap order">${has && !pend ? `<button type="button" class="btn small primary" data-act="calibdl" data-id="${esc(e.id)}">⬇ Завантажити</button><a class="btn small ghost" href="#/calibmail/${esc(e.id)}">✉ Надіслати</a>${navigator.canShare ? `<button type="button" class="btn small ghost" data-act="calibshare" data-id="${esc(e.id)}">↗ Поділитися</button>` : ''}` : ''}
+    ${pend ? badge('⏳ відправляється', 'warn') : ''}
+    ${isLead() ? `<label class="btn small ${has ? 'ghost' : 'primary'} upl">${has ? 'Замінити файл' : '⬆ Додати свідоцтво (PDF / фото)'}<input type="file" accept="application/pdf,image/*" data-calibup="${esc(e.id)}"></label>` : ''}</div>
+    <p class="small mute">Файл зберігається на Google Диску в папці «Свідоцтва калібрування / ${esc(e.name || '')}${e.invNo ? ' інв. ' + esc(e.invNo) : ''}».</p>`;
+}
+const getCalibFile = e => getRowFile('Обладнання', e);
+ACTS.calibdl = async d => {
+  try {
+    toast('Готую файл…');
+    const f = await getCalibFile(get('Обладнання', d.id));
+    const r = await saveFile(f.name || 'Свідоцтво.pdf', fileToBlob(f));
+    toast(r === 'declined' ? 'Збереження скасовано' : 'Свідоцтво завантажено: ' + (f.name || ''));
+    render();
+  } catch (e) { toast(e.message); }
+};
+ACTS.calibshare = async d => {
+  try {
+    const f = await getCalibFile(get('Обладнання', d.id));
+    const file = new File([fileToBlob(f)], f.name || 'Свідоцтво', { type: f.mime });
+    if (!navigator.canShare || !navigator.canShare({ files: [file] })) return toast('Цей пристрій не підтримує надсилання файлів — скористайтеся «Завантажити»');
+    await navigator.share({ files: [file], title: f.name });
+  } catch (e) { if (e.name !== 'AbortError') toast(e.message); }
+};
+ROUTES.calibmail = id => {
+  if (isVisitor()) return denied();
+  const e = get('Обладнання', id); if (!e) return notFound();
+  const me = get('Персонал', ME.personId) || {};
+  let h = card('Свідоцтво про калібрування', kv([
+    ['Обладнання', esc(e.name) + (e.invNo ? ' · інв. ' + esc(e.invNo) : '')], ['№ свідоцтва', esc(e.calibCert || '—')],
+    ['Дійсне до', e.calibTo ? uaDate(e.calibTo) : '—'], ['Файл', esc(e.fileName || '—')]
+  ]));
+  h += card('Надіслати', form('calibmail', id,
+    emailField('Email, на який надіслати', (UI.draft['calibmail:' + id] || {}).email || me.email || ME.email || '') +
+    '<p class="small mute">Свідоцтво буде надіслано вкладенням.</p>', { submit: '✉ Надіслати' }));
+  return page('Надіслати свідоцтво', h, '#/equipment/' + id);
+};
+FORMS.calibmail = async (d, id) => {
+  const e = get('Обладнання', id); if (!e) return toast('Обладнання не знайдено');
+  const email = normEmails(d.email);
+  if (!email) return toast('Вкажіть коректний email (кілька адрес — через кому)');
+  if (MODE === 'demo') {
+    UI.dirty = false;
+    await ask(`ДЕМО: у робочій версії на ${email} піде лист «Свідоцтво про калібрування${e.calibCert ? ' № ' + e.calibCert : ''} — ${e.name}» з файлом 📎 ${e.fileName || 'Свідоцтво.pdf'}.`, 'Зрозуміло', 'Закрити');
+    return go('#/equipment/' + id);
+  }
+  if (!navigator.onLine) return toast('Потрібен інтернет');
+  if (!e.fileId) return toast('Свідоцтво ще не відправлено на сервер — спробуйте за хвилину');
+  toast('Надсилаю…');
+  const r = await api({ action: 'mailcalib', id, email }, 120000).catch(x => ({ ok: false, error: x.message }));
+  if (!r.ok) return toast('Не надіслано: ' + (r.error === 'Невідома дія' ? 'оновіть серверну частину порталу' : r.error));
+  UI.dirty = false; savedMsg('Свідоцтво надіслано на ' + r.to); go('#/equipment/' + id);
 };
 /** Рядки комплекту з полів форми k_<i>_<поле>; ключі видаляються з d. */
 function kitFromForm(d) {
