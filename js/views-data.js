@@ -787,73 +787,173 @@ ACTS.certshare = async d => {
 };
 
 // ═════════ ОБЛАДНАННЯ ═════════
-function holderOpts() {
-  return [['склад', 'Склад'], ...all('Авто').map(c => ['авто:' + c.id, 'Авто: ' + c.name]), ...staff().filter(p => p.role !== 'відвідувач').map(p => ['працівник:' + p.id, shortName(p.pib)])];
+const KIT_COND = ['справне', 'несправне', 'відсутнє'];
+/** Методи обладнання: «VT, UT-W» → ['VT', 'UT-W']. */
+const eqMethods = e => String(e.method || '').split(/[,;]+|\s+/).map(x => normM(x.trim())).filter(Boolean);
+/** Обладнання з методом «VT» (без сектора) підходить і до VT-W, і до VT-S. */
+const eqHasMethod = (e, m) => { const ms = eqMethods(e); return ms.includes(m) || ms.includes(m.split('-')[0]); };
+const eqKit = e => arr(e.kit).filter(k => k && String(k.name || '').trim());
+function kitSum(e) {
+  const k = eqKit(e); if (!k.length) return null;
+  const units = k.reduce((s, x) => s + (num(x.qty) || 1), 0);
+  const bad = k.filter(x => x.condition === 'несправне').reduce((s, x) => s + (num(x.qty) || 1), 0);
+  const miss = k.filter(x => x.condition === 'відсутнє').reduce((s, x) => s + (num(x.qty) || 1), 0);
+  return { units, bad, miss, cls: bad || miss ? 'bad' : 'ok', text: `комплект: ${units} од.` + (bad ? `, несправних ${bad}` : '') + (miss ? `, відсутніх ${miss}` : '') + (!bad && !miss ? ', усі справні' : '') };
 }
+function calibState(e) {
+  if (!e.calibTo) return { cls: '', text: 'калібрування не внесено' };
+  const v = validity(e.calibTo);
+  return { cls: v.cls, text: (v.cls === 'bad' ? 'калібрування прострочено ' : 'калібрування до ') + uaDate(e.calibTo) + (v.cls === 'warn' ? ' (' + v.text + ')' : '') };
+}
+const eqCond = e => { const c = e.condition || 'справне'; return badge(esc(c), c === 'несправне' ? 'bad' : c === 'потребує обслуговування' ? 'warn' : 'ok'); };
+/** Де знаходиться: Склад / Авто: марка держномер / У користуванні: працівник з дати. */
+function eqPlace(e) {
+  if (e.holderType === 'авто') return 'Авто: ' + carName(e.holderId);
+  if (e.holderType === 'працівник') return 'У користуванні: ' + shortName(personName(e.holderId)) + (e.handedAt ? ' з ' + uaDate(e.handedAt) : '');
+  return 'Склад';
+}
+function holderOpts() {
+  return [['склад', 'Склад'], ...all('Авто').map(c => ['авто:' + c.id, 'Авто: ' + carName(c.id)]), ...staff().filter(p => p.role !== 'відвідувач').map(p => ['працівник:' + p.id, 'У користування: ' + shortName(p.pib)])];
+}
+const workerOpts = () => staff().filter(p => p.role !== 'відвідувач').map(p => [p.id, shortName(p.pib)]);
 ROUTES.equip = () => {
   if (isVisitor()) return denied();
   const tab = UI.etab || 'list';
   let h = seg('etab', [['list', 'Обладнання'], ['moves', 'Переміщення']], tab) + `<a class="btn ghost wide" href="#/kit">Комплектація автомобілів за методами ›</a>`;
   if (tab === 'moves') {
     const mv = all('Переміщення').slice().sort((a, b) => String(b.date).localeCompare(String(a.date)) || (b.updatedAt || 0) - (a.updatedAt || 0));
-    h += mv.slice(0, UI.limit).map(m => { const e = get('Обладнання', m.equipId) || {}; return `<div class="item"><div class="row between"><b>${esc(e.name || '—')}</b><span class="small">${uaDate(m.date)}</span></div>
+    h += mv.slice(0, UI.limit).map(m => { const e = get('Обладнання', m.equipId) || {}; return `<a class="item" href="#/equipment/${esc(m.equipId)}"><div class="row between"><b>${esc(e.name || '—')}</b><span class="small">${uaDate(m.date)}</span></div>
       <span class="small">${esc(holderName(m.fromType, m.fromId))} → <b>${esc(holderName(m.toType, m.toId))}</b></span>
-      <span class="small mute">Стан: ${esc(m.condition || '—')}${m.note ? ' · ' + esc(m.note) : ''} · ${esc(personName(m.authorId))}</span></div>`; }).join('') + more(mv.length) || empty('Переміщень немає');
+      <span class="small mute">Стан: ${esc(m.condition || '—')}${m.note ? ' · ' + esc(m.note) : ''} · ${esc(personName(m.authorId))}</span></a>`; }).join('') + more(mv.length) || empty('Переміщень немає');
     return page('Обладнання', h, '#/menu');
   }
-  const q = String(UI.eq || '').toLowerCase(); const hf = UI.eh || '';
-  let list = all('Обладнання').filter(e => (!q || [e.name, e.invNo, e.serial, e.method].join(' ').toLowerCase().includes(q)));
-  if (hf) list = list.filter(e => hf === 'склад' ? (!e.holderType || e.holderType === 'склад') : (e.holderType + ':' + e.holderId) === hf);
+  const all_ = all('Обладнання');
+  const q = String(UI.eq || '').toLowerCase(), hf = UI.eh || '', mf = UI.emeth || '', wf = UI.ew || '';
+  let list = all_.filter(e => (!q || [e.name, e.invNo, e.serial, e.method, eqKit(e).map(k => k.name).join(' ')].join(' ').toLowerCase().includes(q)));
+  if (mf) list = list.filter(e => eqHasMethod(e, mf));
+  if (hf === 'склад') list = list.filter(e => !e.holderType || e.holderType === 'склад');
+  else if (hf === 'авто') list = list.filter(e => e.holderType === 'авто');
+  else if (hf === 'працівник') list = list.filter(e => e.holderType === 'працівник');
+  else if (hf) list = list.filter(e => (e.holderType + ':' + e.holderId) === hf);
+  if (wf) list = list.filter(e => e.holderType === 'працівник' && e.holderId === wf);
   list.sort((a, b) => String(a.name).localeCompare(String(b.name), 'uk'));
-  h += `<input class="search" type="search" placeholder="Пошук: назва, інв. №, метод" value="${esc(UI.eq || '')}" data-set="eq">
-    <div class="filters">${fSel('Де знаходиться', 'x', holderOpts(), hf, { none: 'Усі місця' }).replace('name="x"', 'data-set="eh"')}</div>`;
+  const cntM = m => all_.filter(e => eqHasMethod(e, m)).length;
+  const users = [...new Set(all_.filter(e => e.holderType === 'працівник' && e.holderId).map(e => e.holderId))]
+    .map(id => [id, shortName(personName(id)) + ' · ' + all_.filter(e => e.holderType === 'працівник' && e.holderId === id).length]).sort((a, b) => String(a[1]).localeCompare(String(b[1]), 'uk'));
+  const placeOpts = [['склад', 'Склад · ' + all_.filter(e => !e.holderType || e.holderType === 'склад').length], ['авто', 'Автомобілі (усі) · ' + all_.filter(e => e.holderType === 'авто').length],
+    ...all('Авто').map(c => ['авто:' + c.id, 'Авто: ' + carName(c.id) + ' · ' + all_.filter(e => e.holderType === 'авто' && e.holderId === c.id).length]),
+    ['працівник', 'Передано у користування · ' + all_.filter(e => e.holderType === 'працівник').length]];
+  h += `<input class="search" type="search" placeholder="Пошук: назва, інв. №, зав. №, комплект" value="${esc(UI.eq || '')}" data-set="eq">`;
+  h += seg('emeth', [['', 'Усі методи'], ...METHODS.map(m => [m, m + ' ' + cntM(m)])], mf).replace('class="seg"', 'class="seg wrap"');
+  h += `<div class="filters">${fSel('Де знаходиться', 'x', placeOpts, hf, { none: 'Усі місця' }).replace('name="x"', 'data-set="eh"')}${fSel('У користуванні', 'y', users, wf, { none: users.length ? 'Усі працівники' : '— нікому не передано —' }).replace('name="y"', 'data-set="ew"')}</div>`;
   if (isLead()) h += fab('#/equipform/new');
+  h += `<p class="small mute">Знайдено: ${list.length}</p>`;
   h += list.slice(0, UI.limit).map(e => {
-    const cl = e.condition === 'несправне' ? 'bad' : e.condition === 'потребує обслуговування' ? 'warn' : 'ok';
-    const cal = e.calibTo ? validity(e.calibTo) : null;
-    return `<div class="item"><div class="row between"><b>${esc(e.name)}</b>${badge(esc(e.condition || 'справне'), cl)}</div>
-      <span class="small mute">інв. ${esc(e.invNo || '—')}${e.serial ? ' · зав. ' + esc(e.serial) : ''}${e.method ? ' · ' + esc(normM(e.method)) : ''}</span>
-      <span class="small">📍 ${esc(holderName(e.holderType, e.holderId))}${cal ? ' · повірка ' + `<span class="${cal.cls}">${cal.text}</span>` : ''}</span>
+    const cal = calibState(e), ks = kitSum(e);
+    return `<div class="item"><a class="item-link" href="#/equipment/${esc(e.id)}"><div class="row between"><b>${esc(e.name)}</b>${eqCond(e)}</div>
+      <span class="small mute">інв. ${esc(e.invNo || '—')}${e.serial ? ' · зав. ' + esc(e.serial) : ''}${eqMethods(e).length ? ' · ' + esc(eqMethods(e).join(', ')) : ''}</span>
+      <span class="small">📍 ${esc(eqPlace(e))}</span>
+      <span class="small">${ks ? badge('🧩 ' + esc(ks.text), ks.cls) + ' ' : ''}${badge('📏 ' + esc(cal.text), cal.cls)}</span></a>
       <div class="row gap">${canReport() ? `<a class="btn small" href="#/moveform/${esc(e.id)}">Передати</a>` : ''}${isLead() ? `<a class="btn small ghost" href="#/equipform/${esc(e.id)}">Змінити</a>` : ''}</div></div>`;
   }).join('') + (list.length ? more(list.length) : empty('Обладнання не знайдено'));
   return page('Обладнання', h, '#/menu');
 };
+/** Розширена картка обладнання: місце, комплект зі станом кожної одиниці, калібрування, історія переміщень. */
+ROUTES.equipment = id => {
+  if (isVisitor()) return denied();
+  const e = get('Обладнання', id); if (!e) return notFound();
+  const cal = calibState(e), kit = eqKit(e), ks = kitSum(e);
+  let h = card(esc(e.name), kv([
+    ['Методи контролю', esc(eqMethods(e).join(', ') || '—')], ['Інвентарний №', esc(e.invNo || '—')], ['Заводський №', esc(e.serial || '—')],
+    ['Технічний стан', eqCond(e)], ['Де знаходиться', esc(eqPlace(e))],
+    ...(e.holderType === 'працівник' ? [['Передано у користування', esc(personName(e.holderId)) + (e.handedAt ? ' · ' + uaDate(e.handedAt) : '')]] : []),
+    ['Примітка', esc(e.note || '')]
+  ]) + `<div class="row gap">${canReport() ? `<a class="btn small" href="#/moveform/${esc(id)}">Передати</a>` : ''}${isLead() ? `<a class="btn small ghost" href="#/equipform/${esc(id)}">Змінити</a>` : ''}</div>`);
+  h += card('Калібрування / повірка', kv([
+    ['Стан', badge(esc(cal.text), cal.cls)],
+    ['Дата калібрування', e.calibDate ? uaDate(e.calibDate) : '—'],
+    ['Дійсне до', e.calibTo ? uaDate(e.calibTo) + (validity(e.calibTo).cls !== 'ok' ? ` <span class="small ${validity(e.calibTo).cls}">${esc(validity(e.calibTo).text)}</span>` : '') : '—'],
+    ['№ свідоцтва про калібрування', esc(e.calibCert || '—')], ['Ким виконано', esc(e.calibOrg || '—')]
+  ]));
+  h += card('Комплект' + (ks ? ' · ' + ks.units + ' од.' : ''), kit.length ? `<div class="tblwrap"><table class="tbl kittbl"><thead><tr><th>№</th><th>Найменування</th><th>К-сть</th><th>Зав. №</th><th>Стан</th></tr></thead><tbody>${kit.map((k, i) => `<tr><td>${i + 1}</td><td>${esc(k.name)}</td><td>${num(k.qty) || 1}</td><td>${esc(k.serial || '')}</td><td>${badge(esc(k.condition || 'справне'), k.condition === 'несправне' || k.condition === 'відсутнє' ? 'bad' : 'ok')}</td></tr>`).join('')}</tbody></table></div><p class="small">${badge(esc(ks.text), ks.cls)}</p>` : empty('Склад комплекту не внесено') + (isLead() ? `<a class="small" href="#/equipform/${esc(id)}">Додати склад комплекту ›</a>` : ''));
+  const mv = all('Переміщення').filter(m => m.equipId === id).sort((a, b) => String(b.date).localeCompare(String(a.date)));
+  h += card('Історія переміщень · ' + mv.length, mv.length ? mv.map(m => `<div class="item"><div class="row between"><span class="small">${esc(holderName(m.fromType, m.fromId))} → <b>${esc(holderName(m.toType, m.toId))}</b></span><span class="small">${uaDate(m.date)}</span></div><span class="small mute">Стан: ${esc(m.condition || '—')}${m.note ? ' · ' + esc(m.note) : ''}${m.authorId ? ' · ' + esc(shortName(personName(m.authorId))) : ''}</span></div>`).join('') : empty('Переміщень не було'));
+  return page('Обладнання', h, '#/equip');
+};
+/** Рядки комплекту з полів форми k_<i>_<поле>; ключі видаляються з d. */
+function kitFromForm(d) {
+  const rows = {};
+  Object.keys(d).forEach(k => { const m = k.match(/^k_(\d+)_(name|qty|serial|condition)$/); if (m) { (rows[m[1]] = rows[m[1]] || {})[m[2]] = d[k]; delete d[k]; } });
+  return Object.keys(rows).sort((a, b) => a - b).map(i => rows[i]);
+}
 ROUTES.equipform = (id = 'new') => {
   if (!isLead()) return denied();
   const src = id !== 'new' ? get('Обладнання', id) : null;
-  const d = src || { condition: 'справне', holderType: 'склад' };
+  if (id !== 'new' && !src) return notFound();
+  const key = 'equip:' + id;
+  const dr = UI.draft[key];
+  const d = dr || { ...(src || { condition: 'справне', holderType: 'склад' }), holder: src && src.holderType && src.holderType !== 'склад' ? src.holderType + (src.holderType === 'працівник' ? '' : ':' + src.holderId) : 'склад', workerId: src && src.holderType === 'працівник' ? src.holderId : '' };
+  const kit = dr && dr._kit ? dr._kit : eqKit(src || {});
+  const ms = eqMethods(d);
+  const places = [['склад', 'Склад'], ...all('Авто').map(c => ['авто:' + c.id, 'Авто: ' + carName(c.id)]), ['працівник', 'Передано у користування']];
+  const kitRows = kit.map((k, i) => `<div class="kitrow"><div class="grid2">${fInp('Найменування', `k_${i}_name`, k.name, { ph: 'напр. перетворювач П121-5,0' })}<div class="grid2">${fNum('К-сть', `k_${i}_qty`, k.qty || 1)}${fSel('Стан', `k_${i}_condition`, KIT_COND, k.condition || 'справне')}</div></div>
+    <div class="row gap">${fInp('Зав. №', `k_${i}_serial`, k.serial, { cls: 'grow' })}<button type="button" class="btn small ghost" data-act="kitdel" data-i="${i}" title="Видалити">✕</button></div></div>`).join('');
   const body = fInp('Найменування', 'name', d.name, { req: true }) +
     `<div class="grid2">${fInp('Інвентарний №', 'invNo', d.invNo)}${fInp('Заводський №', 'serial', d.serial)}</div>
-     <div class="grid2">${fSel('Метод НК', 'method', [...METHODS, 'Загальне'], normM(d.method), { none: '—' })}${fSel('Стан', 'condition', CONDITIONS, d.condition)}</div>
-     ${fSel('Де знаходиться', 'holder', holderOpts(), d.holderType && d.holderType !== 'склад' ? d.holderType + ':' + d.holderId : 'склад')}
-     ${fInp('Повірка / калібрування дійсні до', 'calibTo', d.calibTo, { type: 'date' })}${fArea('Примітка', 'note', d.note, { rows: 2 })}`;
-  return page(src ? 'Обладнання' : 'Нове обладнання', form('equip', id, body, src ? { del: { t: 'Обладнання', id, back: '#/equip' } } : {}), '#/equip');
+     ${fMulti('Методи контролю', 'methods', [...METHODS, 'Загальне'], ms.length ? ms : [])}
+     ${fSel('Технічний стан', 'condition', CONDITIONS, d.condition)}
+     ${fSel('Де знаходиться', 'holder', places, d.holder, { re: true })}
+     ${d.holder === 'працівник' ? `<div class="grid2">${fSel('Працівник (у користуванні)', 'workerId', workerOpts(), d.workerId, { req: true, none: '— оберіть працівника —' })}${fInp('Дата передачі', 'handedAt', d.handedAt || today(), { type: 'date' })}</div>` : ''}
+     <fieldset class="f"><legend>Калібрування / повірка</legend><div class="grid2">${fInp('Дата калібрування', 'calibDate', d.calibDate, { type: 'date' })}${fInp('Дійсне до', 'calibTo', d.calibTo, { type: 'date' })}</div>
+     <div class="grid2">${fInp('№ свідоцтва про калібрування', 'calibCert', d.calibCert)}${fInp('Ким виконано', 'calibOrg', d.calibOrg, { ph: 'напр. ДП «Укрметртестстандарт»' })}</div></fieldset>
+     <fieldset class="f"><legend>Комплект · ${kit.length} поз.</legend>${kitRows || '<p class="small mute">Склад комплекту не внесено.</p>'}<button type="button" class="btn small ghost" data-act="kitadd">+ Додати одиницю комплекту</button></fieldset>
+     ${fArea('Примітка', 'note', d.note, { rows: 2 })}`;
+  return page(src ? 'Обладнання' : 'Нове обладнання', form('equip', id, body, src ? { del: { t: 'Обладнання', id, back: '#/equip' } } : {}), src ? '#/equipment/' + id : '#/equip');
 };
+/** Поточні значення форми обладнання → чернетка (щоб додавання/видалення рядка комплекту нічого не губило). */
+function equipDraft(el) {
+  const f = el.closest('form'); const key = 'equip:' + (f.dataset.id || 'new');
+  const d = formData(f); d.methods = d.methods || []; d.method = d.methods.join(', ');
+  d._kit = kitFromForm(d); UI.draft[key] = d; return d;
+}
+ACTS.kitadd = (x, el) => { const d = equipDraft(el); d._kit.push({ name: '', qty: 1, condition: 'справне' }); UI.dirty = false; render(); UI.dirty = true; };
+ACTS.kitdel = (x, el) => { const d = equipDraft(el); d._kit.splice(Number(x.i), 1); UI.dirty = false; render(); UI.dirty = true; };
+ONCHANGE.equip = (d) => { d._kit = kitFromForm(d); d.method = (d.methods || []).join(', '); };
 FORMS.equip = async (d, id) => {
   if (!need(d, [['name', 'найменування']])) return;
-  const [ht, hid] = d.holder.split(':'); delete d.holder;
+  const kit = kitFromForm(d).filter(k => String(k.name || '').trim()).map(k => ({ name: k.name.trim(), qty: num(k.qty) || 1, serial: k.serial || '', condition: k.condition || 'справне' }));
   const src = id !== 'new' ? get('Обладнання', id) : {};
-  await save('Обладнання', { ...src, ...d, holderType: ht, holderId: hid || '', id: id !== 'new' ? id : undefined });
-  UI.dirty = false; savedMsg('Збережено'); go('#/equip');
+  let ht = 'склад', hid = '';
+  if (d.holder === 'працівник') { if (!d.workerId) return toast('Оберіть працівника, якому передано обладнання'); ht = 'працівник'; hid = d.workerId; }
+  else if (String(d.holder).startsWith('авто:')) { ht = 'авто'; hid = d.holder.slice(5); }
+  const method = (d.methods || []).join(', ');
+  const handedAt = ht === 'працівник' ? (d.handedAt || today()) : '';
+  ['holder', 'workerId', 'methods', '_kit'].forEach(k => delete d[k]);
+  const row = await save('Обладнання', { ...src, ...d, method, kit: JSON.stringify(kit), holderType: ht, holderId: hid, handedAt, id: id !== 'new' ? id : undefined });
+  // зміна місця з картки — фіксується як переміщення
+  if (id !== 'new' && ((src.holderType || 'склад') !== ht || (src.holderId || '') !== hid))
+    await save('Переміщення', { equipId: row.id, date: handedAt || today(), fromType: src.holderType || 'склад', fromId: src.holderId || '', toType: ht, toId: hid, condition: row.condition, note: 'змінено в картці обладнання', authorId: ME.personId });
+  delete UI.draft['equip:' + id]; UI.dirty = false; savedMsg('Збережено'); go('#/equipment/' + row.id);
 };
 ROUTES.moveform = id => {
   if (!canReport()) return denied();
   const e = get('Обладнання', id);
   if (!e) return notFound();
-  const body = `<div class="note">${esc(e.name)} · інв. ${esc(e.invNo || '—')}<br>Зараз: <b>${esc(holderName(e.holderType, e.holderId))}</b></div>` +
+  const ks = kitSum(e);
+  const body = `<div class="note">${esc(e.name)} · інв. ${esc(e.invNo || '—')}<br>Зараз: <b>${esc(eqPlace(e))}</b>${ks ? '<br>' + esc(ks.text) : ''}</div>` +
     fSel('Кому / куди передати', 'to', holderOpts().filter(o => o[0] !== (e.holderType && e.holderType !== 'склад' ? e.holderType + ':' + e.holderId : 'склад')), '', { req: true, none: '— оберіть —' }) +
-    `<div class="grid2">${fInp('Дата', 'date', today(), { type: 'date', req: true })}${fSel('Стан при передачі', 'condition', CONDITIONS, e.condition || 'справне')}</div>` +
+    `<div class="grid2">${fInp('Дата передачі', 'date', today(), { type: 'date', req: true })}${fSel('Стан при передачі', 'condition', CONDITIONS, e.condition || 'справне')}</div>` +
     fArea('Примітка (комплектність, пошкодження)', 'note', '', { rows: 2 });
-  return page('Передача обладнання', form('move', id, body, { submit: 'Передати' }), '#/equip');
+  return page('Передача обладнання', form('move', id, body, { submit: 'Передати' }), '#/equipment/' + id);
 };
 FORMS.move = async (d, id) => {
   if (!need(d, [['to', 'кому передати'], ['date', 'дата']])) return;
   const e = get('Обладнання', id);
   const [tt, tid] = d.to.split(':');
   await save('Переміщення', { equipId: id, date: d.date, fromType: e.holderType || 'склад', fromId: e.holderId || '', toType: tt, toId: tid || '', condition: d.condition, note: d.note, authorId: ME.personId });
-  const upd = { ...e, holderType: tt, holderId: tid || '', condition: d.condition };
+  const upd = { ...e, holderType: tt, holderId: tid || '', condition: d.condition, handedAt: tt === 'працівник' ? d.date : '' };
   if (isLead() || MODE === 'demo') await save('Обладнання', upd); else await applyLocal('Обладнання', upd);
-  UI.dirty = false; savedMsg('Передачу зафіксовано'); go('#/equip');
+  UI.dirty = false; savedMsg('Передачу зафіксовано'); go('#/equipment/' + id);
 };
 
 // ═════════ КОМПЛЕКТАЦІЯ АВТО ═════════
