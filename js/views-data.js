@@ -461,7 +461,7 @@ ROUTES.staff = () => {
   const m = ym(today());
   const bOf = {}; BRIGADES.forEach(n => brigadeMembers(brigadeOf(m, n)).forEach(id => (bOf[id] = n)));
   const nv = visitors().length;
-  let h = `<div class="row gap"><a class="btn ghost" href="#/certs">Сертифікати</a><a class="btn ghost" href="#/ackmatrix">Ознайомлення</a>${isLead() ? `<a class="btn ghost" href="#/visitors">Відповідальні від замовника${nv ? ' · ' + nv : ''}</a>` : ''}${isLead() && hiddenPeople().length ? `<a class="btn ghost" href="#/hiddenstaff">Приховані · ${hiddenPeople().length}</a>` : ''}</div>`;
+  let h = `<div class="row gap"><a class="btn ghost" href="#/certs">Сертифікати</a><a class="btn ghost" href="#/ackmatrix">Ознайомлення</a>${isLead() ? `<a class="btn ghost" href="#/visitors">Відповідальні від замовника${nv ? ' · ' + nv : ''}</a><a class="btn ghost" href="#/access">🔑 Доступ до порталу</a>` : ''}${isLead() && hiddenPeople().length ? `<a class="btn ghost" href="#/hiddenstaff">Приховані · ${hiddenPeople().length}</a>` : ''}</div>`;
   if (isLead()) h += fab('#/personform/new');
   const st = staff(), stOf = {}; st.forEach(p => (stOf[p.id] = personState(p)));
   const cnt = k => st.filter(p => stOf[p.id] === k).length;
@@ -506,8 +506,121 @@ ROUTES.visitors = () => {
   let h = `<p class="small mute">Відповідальні від замовника бачать обʼєкти, завдання, склад бригад, звіти, протоколи НК і новини; нічого не змінюють. Вони не входять до персоналу, бригад, табелів, інструктажів і ЗІЗ. Обʼєкти привʼязуються за ПІБ у полі «Відповідальний від замовника» картки обʼєкта.</p>` + fab('#/personform/new/visitor');
   h += list.length ? card('Відповідальні від замовника · ' + list.length, list.map(p => { const os = respObjects(p); return `<a class="item" href="#/person/${esc(p.id)}"><b>${esc(p.pib)}</b>
     <span class="small mute">${esc(p.posada || '')}${p.email ? (p.posada ? ' · ' : '') + esc(p.email) : ' · без email — вхід неможливий'}</span>
+    <span class="small">${loginBadge(p)}</span>
     ${os.length ? `<span class="small">${os.map(o => esc(o.short || o.name) + (o.settlement ? ' (📍 ' + esc(o.settlement) + ')' : '')).join(', ')}</span>` : ''}</a>`; }).join('')) : empty('Відповідальних від замовника немає');
   return page('Відповідальні від замовника', h, '#/staff');
+};
+
+// ═════════ ДОСТУП ДО ПОРТАЛУ: запрошення, email і код, статус входу ═════════
+/** Дані про входи (лише керівнику): logins[id] = [останній вхід, к-сть, перший, спосіб], seen[id] = остання активність, pins = у кого є код. */
+function accessInfo() {
+  if (MODE === 'demo') {
+    if (!DB.access) {
+      const lg = {}, sn = {}, now = Date.now();
+      allPeople().forEach((p, i) => { if (p.email && i % 3 !== 2) { const t = now - (i * 37 % 200) * 3600e3; lg[p.id] = [t, 1 + i % 9, t - 20 * 864e5, 'pin']; sn[p.id] = now - (i * 13 % 90) * 60e3 * (i % 4 ? 1 : 30); } });
+      DB.access = { logins: lg, seen: sn, pins: allPeople().filter((p, i) => p.email && i % 5).map(p => p.id) };
+    }
+    return DB.access;
+  }
+  return DB.access || (DB.access = LS.json('access') || {});
+}
+/** Скільки часу тому: «5 хв тому», «3 год тому», «вчора», дата. */
+function agoText(ms) {
+  const d = Date.now() - num(ms); if (!num(ms)) return '';
+  if (d < 90e3) return 'щойно';
+  if (d < 3600e3) return Math.round(d / 60e3) + ' хв тому';
+  if (d < 86400e3) return Math.round(d / 3600e3) + ' год тому';
+  if (d < 2 * 86400e3) return 'вчора';
+  if (d < 14 * 86400e3) return Math.round(d / 86400e3) + ' дн. тому';
+  return fmtDT(ms).slice(0, 10);
+}
+/** Статус входу: ok — входив; warn — запрошено, ще не входив; '' — не запрошено; bad — немає email. */
+function loginState(p) {
+  const a = accessInfo(), L = (a.logins || {})[p.id], S = (a.seen || {})[p.id];
+  if (!String(p.email || '').trim()) return { k: 'noemail', cls: 'bad', text: 'немає email — вхід неможливий' };
+  if (L || S) return { k: 'in', cls: 'ok', text: (S ? 'активність ' + agoText(S) : 'входив ' + agoText(L[0])), L, S };
+  if (num(p.invitedAt)) return { k: 'inv', cls: 'warn', text: 'запрошено ' + fmtDT(p.invitedAt).slice(0, 10) + ', ще не входив' };
+  if ((a.pins || []).includes(p.id)) return { k: 'pin', cls: '', text: 'код видано, ще не входив' };
+  return { k: 'none', cls: '', text: 'не запрошено' };
+}
+const loginBadge = p => { const s = loginState(p); return badge((s.k === 'in' ? '🟢 ' : s.k === 'inv' ? '✉ ' : s.k === 'noemail' ? '⚠ ' : '⚪ ') + esc(s.text), s.cls); };
+ROUTES.access = () => {
+  if (!isLead()) return denied();
+  const f = UI.accf || 'all', grp = UI.accg || 'all';
+  const ppl = allPeople().filter(p => !hiddenPeople().some(h => h.id === p.id));
+  const st = {}; ppl.forEach(p => (st[p.id] = loginState(p)));
+  const inG = p => grp === 'all' || (grp === 'vis' ? p.role === 'відвідувач' : p.role !== 'відвідувач');
+  const base = ppl.filter(inG);
+  const cnt = k => base.filter(p => k === 'all' || (k === 'out' ? st[p.id].k !== 'in' : st[p.id].k === k)).length;
+  let h = `<p class="small mute">Запросіть працівника або відповідального від замовника: вкажіть email і код (PIN) — на пошту прийде лист із посиланням на портал, email і кодом. Email і код можна змінити будь-коли; після зміни email попередні входи з тієї адреси завершуються. Статус входу відстежується з 07.10.2026.</p>`;
+  h += seg('accg', [['all', 'Усі · ' + ppl.length], ['staff', 'Працівники · ' + ppl.filter(p => p.role !== 'відвідувач').length], ['vis', 'Від замовника · ' + ppl.filter(p => p.role === 'відвідувач').length]], grp).replace('class="seg"', 'class="seg wrap"');
+  h += `<div class="kpis staffkpi">${[['all', 'Усього'], ['in', '🟢 Входили'], ['out', 'Не входили'], ['inv', '✉ Запрошені'], ['noemail', '⚠ Без email']].map(([k, l]) => `<button type="button" class="kpi${f === k ? ' on' : ''}" data-act="set" data-k="accf" data-v="${k}"><b>${cnt(k)}</b><span>${l}</span></button>`).join('')}</div>`;
+  const list = base.filter(p => f === 'all' || (f === 'out' ? st[p.id].k !== 'in' : st[p.id].k === f))
+    .sort((a, b) => (a.role === 'відвідувач') - (b.role === 'відвідувач') || String(a.pib).localeCompare(String(b.pib), 'uk'));
+  const item = p => { const s = st[p.id]; return `<div class="item"><div class="row between"><a href="#/person/${esc(p.id)}"><b>${esc(p.pib)}</b></a><a class="btn small ${s.k === 'in' ? 'ghost' : 'primary'}" href="#/invite/${esc(p.id)}">${s.k === 'none' || s.k === 'noemail' || s.k === 'pin' ? '✉ Запросити' : s.k === 'inv' ? '✉ Ще раз' : '🔑 Змінити'}</a></div>
+    <span class="small mute">${esc(p.posada || roleName(p.role) || '')}${p.email ? ' · ' + esc(p.email) : ''}</span>
+    <span class="small">${loginBadge(p)}${s.L ? ` <span class="mute">· входів: ${num(s.L[1])}, останній ${esc(fmtDT(s.L[0]))}</span>` : ''}</span></div>`; };
+  const staffL = list.filter(p => p.role !== 'відвідувач'), visL = list.filter(p => p.role === 'відвідувач');
+  if (staffL.length) h += card('Працівники · ' + staffL.length, staffL.map(item).join(''));
+  if (visL.length) h += card('Відповідальні від замовника · ' + visL.length, visL.map(item).join(''), `<a class="small" href="#/personform/new/visitor">+ додати</a>`);
+  if (!list.length) h += empty('Нікого в цій категорії');
+  return page('Доступ до порталу', h, '#/menu');
+};
+ROUTES.invite = id => {
+  if (!isLead()) return denied();
+  const p = get('Персонал', id); if (!p) return notFound();
+  const s = loginState(p), vis = p.role === 'відвідувач';
+  const d = UI.draft['invite:' + id] || { email: p.email || '', pin: '', send: true };
+  let h = card(esc(p.pib), kv([
+    ['Хто', esc(vis ? 'Відповідальний від замовника' : (p.posada || 'Працівник'))], ['Роль у порталі', esc(roleName(p.role))],
+    ['Email для входу', p.email ? esc(p.email) : '<span class="bad">не вказано</span>'],
+    ['Статус входу', loginBadge(p)],
+    ['Запрошено', num(p.invitedAt) ? esc(fmtDT(p.invitedAt)) + (p.invitedBy ? ' · ' + esc(p.invitedBy) : '') : '—'],
+    ['Останній вхід', s.L ? esc(fmtDT(s.L[0])) + ` <span class="small mute">(${s.L[3] === 'google' ? 'через Google' : 'email + код'})</span>` : '—'],
+    ['Усього входів', s.L ? String(num(s.L[1])) + (s.L[2] ? ` <span class="small mute">з ${esc(fmtDT(s.L[2]).slice(0, 10))}</span>` : '') : '—'],
+    ['Остання активність', s.S ? esc(fmtDT(s.S)) + ' · ' + esc(agoText(s.S)) : '—']
+  ]));
+  h += card(p.email ? 'Змінити email і код / запросити ще раз' : 'Запросити до порталу', form('invite', id,
+    fInp('Email для входу', 'email', d.email, { type: 'email', req: true, ph: 'name@example.com', hint: 'на цю адресу прийде запрошення; нею ж людина входить у портал' }) +
+    `<label class="f"><span>Код для входу (PIN)</span><div class="row gap pinrow"><input name="pin" type="text" inputmode="numeric" autocomplete="off" maxlength="8" value="${esc(d.pin || '')}" placeholder="${(accessInfo().pins || []).includes(id) ? 'залишити поточний' : 'буде згенеровано'}"><button type="button" class="btn small ghost" data-act="genpin">🎲 Новий</button>${MODE === 'live' && (accessInfo().pins || []).includes(id) ? `<button type="button" class="btn small ghost" data-act="showpin" data-id="${esc(id)}">👁 Поточний</button>` : ''}</div><small>4–8 цифр. Порожньо — ${(accessInfo().pins || []).includes(id) ? 'код не змінюється' : 'буде згенеровано 6-значний код'}.</small></label>` +
+    fChk('Надіслати запрошення на email (посилання на портал, email і код)', 'send', d.send) +
+    `<p class="small mute">Після зміни email людина має увійти заново з новою адресою.</p>`,
+    { submit: '✉ Зберегти й запросити' }));
+  return page('Запрошення', h, '#/access');
+};
+ACTS.genpin = (d, el) => { const f = el.closest('form'); const i = f && f.querySelector('input[name=pin]'); if (i) { i.value = String(100000 + Math.floor(Math.random() * 900000)); UI.dirty = true; } };
+ACTS.showpin = async d => {
+  if (!navigator.onLine) return toast('Потрібен інтернет');
+  const r = await api({ action: 'getpin', personId: d.id }).catch(e => ({ ok: false, error: e.message }));
+  if (!r.ok) return toast(r.error === 'Невідома дія' ? 'Оновіть серверну частину порталу' : r.error);
+  await ask(`Поточний код для входу: ${r.pin || '— не задано —'}`, 'Гаразд', 'Закрити');
+};
+FORMS.invite = async (d, id) => {
+  const p = get('Персонал', id); if (!p) return toast('Людину не знайдено');
+  const email = String(d.email || '').trim().toLowerCase();
+  if (!/^[^\s@,;]+@[^\s@,;]+\.[^\s@,;]+$/.test(email)) return toast('Вкажіть коректний email');
+  if (all('Персонал').some(x => x.id !== id && String(x.email || '').trim().toLowerCase() === email)) return toast('Цей email уже вказано в іншої людини');
+  const pin = String(d.pin || '').replace(/\s+/g, '');
+  if (pin && !/^\d{4,8}$/.test(pin)) return toast('Код — від 4 до 8 цифр');
+  const send = !!d.send;
+  if (p.email && String(p.email).toLowerCase() !== email && !await ask(`Змінити email для входу ${p.pib}:\n${p.email} → ${email}?\n\nВходи зі старої адреси буде завершено.`, 'Змінити')) return;
+  if (MODE === 'demo') {
+    const code = pin || String(100000 + Math.floor(Math.random() * 900000));
+    await save('Персонал', { ...p, email, ...(send ? { invitedAt: Date.now(), invitedBy: ME.name } : {}) });
+    const a = accessInfo(); if (!(a.pins || []).includes(id)) a.pins = [...(a.pins || []), id];
+    delete UI.draft['invite:' + id]; UI.dirty = false;
+    await ask(`ДЕМО: збережено.\n\nEmail: ${email}\nКод: ${code}${send ? `\n\nУ робочій версії на ${email} прийде лист «Запрошення до порталу ВЛНК» з посиланням на портал, email і кодом.` : ''}`, 'Зрозуміло', 'Закрити');
+    return go('#/access');
+  }
+  if (!navigator.onLine) return toast('Потрібен інтернет');
+  toast(send ? 'Надсилаю запрошення…' : 'Зберігаю…');
+  const r = await api({ action: 'invite', personId: id, email, pin, send }, 60000).catch(e => ({ ok: false, error: e.message }));
+  if (!r.ok) return toast('Не вдалося: ' + (r.error === 'Невідома дія' ? 'оновіть серверну частину порталу' : r.error));
+  await applyLocal('Персонал', r.row);
+  if (r.access) { DB.access = r.access; LS.set('access', JSON.stringify(r.access)); }
+  delete UI.draft['invite:' + id]; UI.dirty = false;
+  await ask(`${r.mailed ? 'Запрошення надіслано на ' + email : 'Збережено'}.\n\nEmail для входу: ${email}\nКод: ${r.pin}`, 'Гаразд', 'Закрити');
+  go('#/access');
 };
 
 ROUTES.person = id => {
@@ -527,7 +640,7 @@ ROUTES.person = id => {
       ['Працевлаштований', p.hireDate ? uaDate(p.hireDate) : ''], ['Стаж на підприємстві', esc(seniority(p.hireDate))],
       ['Працює за фахом з', p.profSince ? uaDate(p.profSince) : ''], ['Стаж за професією', esc(seniority(p.profSince))]]),
     ['Примітка', esc(p.note)]
-  ]) + (lead ? `<a class="btn ghost" href="#/personform/${esc(id)}">Редагувати</a>` : '') + (p.role === 'відвідувач' ? '<p class="small mute">Відповідальний від замовника — не входить до персоналу лабораторії, має доступ лише на перегляд.</p>' : ''));
+  ]) + (lead ? `<div class="row gap"><a class="btn ghost" href="#/personform/${esc(id)}">Редагувати</a><a class="btn ghost" href="#/invite/${esc(id)}">🔑 Запросити / змінити email і код</a></div><p class="small">Вхід у портал: ${loginBadge(p)}</p>` : '') + (p.role === 'відвідувач' ? '<p class="small mute">Відповідальний від замовника — не входить до персоналу лабораторії, має доступ лише на перегляд.</p>' : ''));
   if (p.role === 'відвідувач') {
     const os = respObjects(p);
     h += card('Обʼєкти · ' + os.length, os.length ? os.map(o => `<a class="item" href="#/object/${esc(o.id)}"><b>${esc(o.short || o.name)}</b>${objMeta(o)}</a>`).join('') : empty('Немає обʼєктів, де цю особу вказано відповідальним'));

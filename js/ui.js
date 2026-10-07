@@ -511,6 +511,7 @@ ROUTES.menu = () => {
     ['#/gen', '📄', 'Формування документів', !vis],
     ['#/news', '📰', 'Новини', true],
     ['#/fleet', '🚗', 'Авто та генератори', lead],
+    ['#/access', '🔑', 'Доступ до порталу', lead],
     ['#/settings', '⚙️', 'Налаштування', true]
   ];
   return page('Меню', `<div class="tiles">${tiles.filter(t => t[3]).map(t => `<a href="${t[0]}"><span>${t[1]}</span>${t[2]}</a>`).join('')}</div>`);
