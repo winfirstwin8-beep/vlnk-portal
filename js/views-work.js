@@ -1244,19 +1244,25 @@ function period(per, d) {
   return [d.slice(0, 4) + '-01-01', d.slice(0, 4) + '-12-31', d.slice(0, 4) + ' рік'];
 }
 ACTS.mshift = d => {
-  const per = UI.mper || 'day', cur = UI.mdate || today(), k = Number(d.k);
-  UI.mdate = per === 'day' ? addDays(cur, k) : per === 'month' ? addMonths(ym(cur), k) + '-01' : (Number(cur.slice(0, 4)) + k) + '-01-01';
+  const per = UI.mper === 'month' ? 'month' : 'day', cur = UI.mdate || today(), k = Number(d.k);
+  let nx = per === 'day' ? addDays(cur, k) : addMonths(ym(cur), k) + '-01';
+  // майбутній період не вибирається
+  if (per === 'day' && nx > today()) nx = today();
+  if (per === 'month' && ym(nx) > ym(today())) nx = ym(today()) + '-01';
+  UI.mdate = nx;
   render();
 };
 
 ROUTES.mon = () => {
-  const per = UI.mper || 'day';
-  const d = UI.mdate || today();
+  const per = UI.mper === 'month' ? 'month' : 'day'; UI.mper = per;
+  let d = UI.mdate || today();
+  if (d > today()) d = UI.mdate = today();
   const [a, b, label] = period(per, d);
+  const atEnd = per === 'day' ? d >= today() : ym(d) >= ym(today());
   const reps = reportsIn(a, b);
   const s = agg(reps);
-  let h = seg('mper', [['day', 'Доба'], ['month', 'Місяць'], ['year', 'Рік']], per) +
-    `<div class="monthnav"><button class="btn icon" data-act="mshift" data-k="-1">‹</button><b>${label}</b><button class="btn icon" data-act="mshift" data-k="1">›</button></div>`;
+  let h = seg('mper', [['day', 'Доба'], ['month', 'Місяць']], per) +
+    `<div class="monthnav"><button class="btn icon" data-act="mshift" data-k="-1">‹</button><b>${label}</b><button class="btn icon" data-act="mshift" data-k="1"${atEnd ? ' disabled title="Майбутній період недоступний"' : ''}>›</button></div>`;
   h += kpis([
     ['люд-год', fmtN(s.manH)], ['особл. хар-р', fmtN(s.special)], ...METHODS.map((m, i) => [mHead(m), mVals(s)[i]]),
     ['км', fmtN(s.km)], ['пальне, л', fmtN(s.fuelTotal)], ['плівка, дм²', fmtN(s.film)], ['проявник, л', fmtN3(s.dev)], ['фіксаж, л', fmtN3(s.fix)], ['пенетранти, л', fmtN3(s.pts + s.ptp + s.ptd)], ['звітів', s.n]
