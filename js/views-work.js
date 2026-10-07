@@ -453,7 +453,7 @@ ROUTES.objdocs = id => {
     ['Автомобіль', x.car ? carFull(x.car.id) : '<span class="mute">не закріплено</span>'],
     ['Працівники', x.workers.map(wid => { const p = get('Персонал', wid) || {}; return esc(shortName(p.pib || '—')) + (p.tabNo ? ` <span class="small mute">таб. ${esc(p.tabNo)}</span>` : ''); }).join('<br>') || '<span class="bad">склад бригади не призначено</span>'],
     ['У відпустці весь період', x.off.map(wid => esc(shortName(personName(wid)))).join(', ')]
-  ]) + (sd ? `<p class="small mute">${sd.exact ? '✓ Уже сформовано' : '⚠ Формувалось на ' + uaDate(sd.doc.dateFrom) + ' – ' + uaDate(sd.doc.dateTo) + ', дати змінились'}: ${esc(fmtDT(sd.doc.sentAt))}, ${esc(sd.doc.email || '')}${arr(sd.doc.files).map(f => f && f.url ? ` · <a href="${esc(f.url)}" target="_blank" rel="noopener">${esc(String(f.name || '').replace(/ .*$/, '') || 'файл')} ↗</a>` : '').join('')}</p>` : ''));
+  ]) + (sd ? `<p class="small mute">${sd.exact ? '✓ Уже сформовано' : '⚠ Формувалось на ' + uaDate(sd.doc.dateFrom) + ' – ' + uaDate(sd.doc.dateTo) + ', дати змінились'}: ${esc(fmtDT(sd.doc.sentAt))}, ${esc(sd.doc.email || '')}${arr(sd.doc.files).map(f => f && f.url ? ` · <a href="${esc(f.url)}" target="_blank" rel="noopener">${esc(String(f.name || '').replace(/ .*$/, '') || 'файл')} ↗</a>` : '').join('')}${resendBtn('ЗвітиЗамовнику', sd.doc)}</p>` : ''));
   const warn = [];
   const noTab = x.workers.filter(wid => !String((get('Персонал', wid) || {}).tabNo || '').trim());
   if (noTab.length) warn.push(`Немає табельного номера: ${noTab.map(wid => `<a href="#/personform/${esc(wid)}">${esc(shortName(personName(wid)))}</a>`).join(', ')} — буде взято з попереднього порталу, якщо там є.`);
@@ -469,7 +469,7 @@ ROUTES.objdocs = id => {
     `<div class="grid2">${fNum('Пересувний, грн за добу (на 1 особу)', 'rate', d.rate, { ph: '600' })}${fNum('Машино-годин на день (реєстр машин)', 'hours', d.hours, { ph: '8' })}</div>` +
     fChk('Перший день — у дорозі (Д у табелі, П у реєстрі машин)', 'travelFirst', d.travelFirst) +
     fChk('Останній день — у дорозі', 'travelLast', d.travelLast) +
-    fInp('Email, на який надіслати звіти', 'email', d.email, { type: 'email', req: true, ph: 'name@example.com' }) +
+    emailField('Email, на який надіслати звіти', d.email) +
     fChk('Запамʼятати email, ставку пересувних і машино-години', 'remember', d.remember) +
     `<p class="small mute">Буде сформовано 3 документи за шаблонами попереднього порталу: звіт про виконання завдання з пересувним характером робіт, табель перебування працівників і реєстр машин і механізмів. Файли (xlsx) збережуться на Google Диску в папці «Звіти для замовника / ${esc(x.from.slice(0, 7))}» і прийдуть листом на вказаний email.</p>`,
     { submit: 'Сформувати й надіслати' }));
@@ -480,10 +480,11 @@ FORMS.objdocs = async (d, id) => {
   const t = get('Завдання', id); if (!t) return toast('Завдання не знайдено');
   const o = get('Обʼєкти', t.objectId) || {};
   const x = objDocsData(t);
-  const email = String(d.email || '').trim();
-  if (!/^[^\s@,;]+@[^\s@,;]+\.[^\s@,;]+$/.test(email)) return toast('Вкажіть коректний email');
+  const email = normEmails(d.email);
+  if (!email) return toast('Вкажіть коректний email (кілька адрес — через кому)');
   if (!x.workers.length) return toast('У бригади немає працівників на цей період');
-  if (d.remember) for (const [k, v] of [['docsEmail', email], ['travelRate', String(num(d.rate))], ['machineHours', String(num(d.hours))]]) { const cur = all('Налаштування').find(r => r.key === k); if (!cur || String(cur.value) !== v) await save('Налаштування', cur ? { ...cur, value: v } : { key: k, value: v }); }
+  if (d.remember) await rememberEmail(email);
+  if (d.remember) for (const [k, v] of [ ['travelRate', String(num(d.rate))], ['machineHours', String(num(d.hours))]]) { const cur = all('Налаштування').find(r => r.key === k); if (!cur || String(cur.value) !== v) await save('Налаштування', cur ? { ...cur, value: v } : { key: k, value: v }); }
   const docs = {
     taskId: t.id, brigade: t.brigade, from: x.from, to: x.to, orderNo: String(d.orderNo || '').trim(), orderDate: d.orderDate || '',
     rate: num(d.rate), hours: num(d.hours), travelFirst: !!d.travelFirst, travelLast: !!d.travelLast, email,
@@ -506,6 +507,75 @@ FORMS.objdocs = async (d, id) => {
   for (const r of res.tabNos || []) { const p = get('Персонал', r.id); if (p) await applyLocal('Персонал', { ...p, tabNo: r.tabNo }); }
   delete UI.draft['objdocs']; UI.dirty = false;
   savedMsg('Звіти сформовано й надіслано на ' + email); history.back();
+};
+// ═════════ EMAIL ДЛЯ НАДСИЛАННЯ ДОКУМЕНТІВ ═════════
+/** «a@x.ua; b@y.ua» → «a@x.ua, b@y.ua»; порожньо, якщо хоч одна адреса некоректна. */
+function normEmails(v) {
+  const a = String(v || '').split(/[\s,;]+/).map(x => x.trim()).filter(Boolean);
+  if (!a.length || a.some(x => !/^[^\s@,;]+@[^\s@,;]+\.[^\s@,;]+$/.test(x))) return '';
+  return [...new Set(a)].join(', ');
+}
+/** Нещодавні адреси (останні 8) + власна пошта — для підказки у полі email. */
+function recentEmails() {
+  let a = []; try { a = JSON.parse(setting('docsEmails', '[]')) || []; } catch (e) { a = []; }
+  const me = (get('Персонал', ME.personId) || {});
+  return [...new Set([setting('docsEmail', ''), ...a, me.email, me.emailCorp, ME.email].map(x => String(x || '').trim()).filter(Boolean))].slice(0, 10);
+}
+async function rememberEmail(email) {
+  const set = async (k, v) => { const cur = all('Налаштування').find(r => r.key === k); if (!cur || String(cur.value) !== v) await save('Налаштування', cur ? { ...cur, value: v } : { key: k, value: v }); };
+  let a = []; try { a = JSON.parse(setting('docsEmails', '[]')) || []; } catch (e) { a = []; }
+  const list = [...new Set([...email.split(/,\s*/), ...a])].slice(0, 8);
+  await set('docsEmail', email); await set('docsEmails', JSON.stringify(list));
+}
+/** Поле email: можна змінити адресу, вибрати з нещодавніх або вписати кілька через кому. */
+function emailField(label, value) {
+  const rec = recentEmails();
+  return `<label class="f"><span>${label} *</span><input name="email" type="text" inputmode="email" autocomplete="off" value="${esc(value || '')}" placeholder="name@example.com" list="emailrec" required>
+    <small>Адресу можна змінити; кілька адрес — через кому.${rec.length > 1 ? ' Нещодавні:' : ''}</small></label>
+    <datalist id="emailrec">${rec.map(e => `<option value="${esc(e)}">`).join('')}</datalist>
+    ${rec.length > 1 ? `<div class="chips emailchips">${rec.map(e => `<button type="button" class="chip" data-act="pickemail" data-v="${esc(e)}">${esc(e)}</button>`).join('')}</div>` : ''}`;
+}
+ACTS.pickemail = (d, el) => {
+  const f = (el && el.closest ? el.closest('form') : null) || document.querySelector('form[data-form] input[name=email]').form;
+  const inp = f.querySelector('input[name=email]'); if (!inp) return;
+  inp.value = d.v; UI.dirty = true; inp.focus();
+};
+/** Кнопка «надіслати ще раз / на іншу адресу» для вже сформованих документів. */
+const resendBtn = (t, doc) => doc && doc.id && isLead() ? ` <a class="btn small ghost" href="#/resend/${encodeURIComponent(t)}/${esc(doc.id)}">✉ Надіслати на іншу адресу</a>` : '';
+const RESEND_KIND = { 'ЗвітиЗамовнику': 'Табеля для замовника', 'СписанняПММ': 'Списання ПММ', 'ВимогиМатеріалів': 'Вимоги на матеріали', 'ДокументиВахт': 'СЗ і відомість проживання' };
+const resendFiles = doc => doc.szUrl || doc.vidUrl || doc.szFileId ? [{ name: 'СЗ пересувний', url: doc.szUrl }, { name: 'Відомість проживання', url: doc.vidUrl }] : arr(doc.files);
+ROUTES.resend = (t, id) => {
+  if (!isLead()) return denied();
+  const doc = get(t, id); if (!doc || !RESEND_KIND[t]) return notFound();
+  const what = doc.objectId ? objShort(doc.objectId) : doc.brigade ? brName(doc.brigade) : '';
+  const files = resendFiles(doc);
+  let h = card(`${esc(RESEND_KIND[t])} · ${esc(what)}`, kv([
+    ['Період', `${uaDate(doc.dateFrom)} – ${uaDate(doc.dateTo)}`],
+    ['Сформовано', esc(fmtDT(doc.sentAt))], ['Надсилалось на', esc(doc.email || '—')],
+    ['Файли', files.map(f => f && f.url ? `<a href="${esc(f.url)}" target="_blank" rel="noopener">${esc(f.name || 'файл')} ↗</a>` : esc((f && f.name) || '')).join('<br>') || '—']
+  ]));
+  h += card('Надіслати повторно', form('resend', t + '|' + id,
+    emailField('Email, на який надіслати', (UI.draft['resend'] || {}).email || '') +
+    fChk('Запамʼятати email', 'remember', true) +
+    '<p class="small mute">Буде надіслано вже сформовані файли (без повторного формування).</p>', { submit: 'Надіслати' }));
+  return page('Надіслати документи', h, '#/plan');
+};
+FORMS.resend = async (d, key) => {
+  const [t, id] = key.split('|');
+  const doc = get(t, id); if (!doc) return toast('Документ не знайдено');
+  const email = normEmails(d.email);
+  if (!email) return toast('Вкажіть коректний email (кілька адрес — через кому)');
+  if (d.remember) await rememberEmail(email);
+  if (MODE === 'demo') {
+    UI.dirty = false;
+    await ask(`ДЕМО: у робочій версії вже сформовані документи «${RESEND_KIND[t]}» буде надіслано на ${email}.`, 'Зрозуміло', 'Закрити');
+    return history.back();
+  }
+  if (!navigator.onLine) return toast('Потрібен інтернет');
+  toast('Надсилаю…');
+  const res = await api({ action: 'resenddocs', table: t, id, email }, 120000).catch(e => ({ ok: false, error: e.message }));
+  if (!res.ok) return toast('Не надіслано: ' + (res.error === 'Невідома дія' ? 'оновіть серверну частину порталу' : res.error));
+  UI.dirty = false; savedMsg('Документи надіслано на ' + email); history.back();
 };
 // ═════════ СПИСАННЯ МАТЕРІАЛІВ (вимоги на рентгенплівку і реактиви) ═════════
 const MALE_A = ['Микола', 'Ілля', 'Кузьма', 'Фома', 'Сава', 'Лука', 'Хома', 'Никита', 'Мина'];
@@ -576,7 +646,7 @@ ROUTES.matreq = id => {
     ['Проявник, л (затребувано)', fmtN3(x.dev)], ['Фіксаж, л (затребувано)', fmtN3(x.fix)],
     ['ICP / ТОРО', o.icp ? 'ICP <b>' + esc(o.icp) + '</b>' : o.soSubOrder ? 'ТОРО-підзамовлення <b>' + esc(o.soSubOrder) + '</b> <span class="small mute">ICP не вказано</span>' : '<span class="warn">немає ні ICP, ні ТОРО-підзамовлення</span>'],
     ['Звітів за період', String(x.reps.length)]
-  ]) + (sd ? `<p class="small mute">${sd.exact ? '✓ Уже сформовано' : '⚠ Формувалось на ' + uaDate(sd.doc.dateFrom) + ' – ' + uaDate(sd.doc.dateTo) + ', дати змінились'}: ${esc(fmtDT(sd.doc.sentAt))}, ${esc(sd.doc.email || '')}${arr(sd.doc.files).map(f => f && f.url ? ` · <a href="${esc(f.url)}" target="_blank" rel="noopener">${esc(/плівка/.test(f.name) ? 'плівка' : 'реактиви')} ↗</a>` : '').join('')}</p>` : ''));
+  ]) + (sd ? `<p class="small mute">${sd.exact ? '✓ Уже сформовано' : '⚠ Формувалось на ' + uaDate(sd.doc.dateFrom) + ' – ' + uaDate(sd.doc.dateTo) + ', дати змінились'}: ${esc(fmtDT(sd.doc.sentAt))}, ${esc(sd.doc.email || '')}${arr(sd.doc.files).map(f => f && f.url ? ` · <a href="${esc(f.url)}" target="_blank" rel="noopener">${esc(/плівка/.test(f.name) ? 'плівка' : 'реактиви')} ↗</a>` : '').join('')}${resendBtn('ВимогиМатеріалів', sd.doc)}</p>` : ''));
   if (!(x.film > 0)) return page('Списання матеріалів', h + `<div class="note warn">У щоденних звітах по цьому обʼєкту за ${uaDate(x.from)} – ${uaDate(x.to)} немає витрати рентгенплівки — вимоги не формуються.</div>`, '#/plan');
   const warn = [];
   if (!o.contact) warn.push(`Не вказано відповідального від замовника. <a href="#/objform/${esc(o.id)}">Заповнити в картці обʼєкта</a>`);
@@ -585,7 +655,7 @@ ROUTES.matreq = id => {
   const d = UI.draft['matreq'] || { recipientGen: r.recipientGen, email: setting('docsEmail', ''), remember: true };
   h += card('Підтвердження формування', form('matreq', id,
     fInp('«Зі складу 1010 в підзвіт Z110» — кого (родовий відмінок)', 'recipientGen', d.recipientGen, { hint: 'перевірте відмінок, напр. «Руслана ГОНЧАРУКА»' }) +
-    fInp('Email, на який надіслати вимоги', 'email', d.email, { type: 'email', req: true, ph: 'name@example.com' }) +
+    emailField('Email, на який надіслати вимоги', d.email) +
     fChk('Запамʼятати email', 'remember', d.remember) +
     `<p class="small mute">Буде сформовано 2 вимоги (docx, А4 книжкова) за шаблонами: на плівку рентгенівську і на реактиви (проявник, фіксаж — у стовпці «Затребувано»). Файли збережуться на Google Диску в папці «Вимоги на матеріали / ${esc(x.from.slice(0, 7))}» і прийдуть листом на вказаний email.</p>`,
     { submit: 'Сформувати й надіслати' }));
@@ -597,9 +667,9 @@ FORMS.matreq = async (d, id) => {
   const o = get('Обʼєкти', t.objectId) || {};
   const x = matData(t), r = matRecipient(o);
   if (!(x.film > 0)) return toast('Рентгенплівка не використовувалась');
-  const email = String(d.email || '').trim();
-  if (!/^[^\s@,;]+@[^\s@,;]+\.[^\s@,;]+$/.test(email)) return toast('Вкажіть коректний email');
-  if (d.remember) { const cur = all('Налаштування').find(q => q.key === 'docsEmail'); if (!cur || String(cur.value) !== email) await save('Налаштування', cur ? { ...cur, value: email } : { key: 'docsEmail', value: email }); }
+  const email = normEmails(d.email);
+  if (!email) return toast('Вкажіть коректний email (кілька адрес — через кому)');
+  if (d.remember) await rememberEmail(email);
   const mat = {
     taskId: t.id, from: x.from, to: x.to, docDate: x.docDate, email, film: x.film, dev: x.dev, fix: x.fix,
     recipient: r.recipient, recipientGen: String(d.recipientGen || r.recipientGen).trim(), recipientSign: r.recipientSign,
@@ -690,7 +760,7 @@ ROUTES.pmm = id => {
     ['Матеріально відповідальна особа', o.contact ? esc(nameSur(o.contact)) + ' <span class="small mute">відповідальний від замовника</span>' : '<span class="warn">не вказано відповідального від замовника</span>'],
     ['ТОРО-замовлення / підзамовлення', esc((o.soOrder || '—') + ' / ' + (o.soSubOrder || '—'))],
     ['№ і дата акта та відомості', `№ <b>${uaDate(x.docDate).slice(0, 5)}</b> від <b>${uaDate(x.docDate)}</b> <span class="small mute">наступний день після останнього дня робіт (${uaDate(x.lastDay)})</span>`]
-  ]) + (sd ? `<p class="small mute">${sd.exact ? '✓ Уже сформовано' : '⚠ Формувалось на ' + uaDate(sd.doc.dateFrom) + ' – ' + uaDate(sd.doc.dateTo) + ', дати змінились'}: ${esc(fmtDT(sd.doc.sentAt))}, ${esc(sd.doc.email || '')}${arr(sd.doc.files).map(f => f && f.url ? ` · <a href="${esc(f.url)}" target="_blank" rel="noopener">${esc(/^Акт/.test(f.name) ? 'акт' : 'відомість')} ↗</a>` : '').join('')}</p>` : ''));
+  ]) + (sd ? `<p class="small mute">${sd.exact ? '✓ Уже сформовано' : '⚠ Формувалось на ' + uaDate(sd.doc.dateFrom) + ' – ' + uaDate(sd.doc.dateTo) + ', дати змінились'}: ${esc(fmtDT(sd.doc.sentAt))}, ${esc(sd.doc.email || '')}${arr(sd.doc.files).map(f => f && f.url ? ` · <a href="${esc(f.url)}" target="_blank" rel="noopener">${esc(/^Акт/.test(f.name) ? 'акт' : 'відомість')} ↗</a>` : '').join('')}${resendBtn('СписанняПММ', sd.doc)}</p>` : ''));
   if (!x.gens.length) h += `<div class="note warn">У щоденних звітах по цьому обʼєкту за ${uaDate(x.from)} – ${uaDate(x.to)} немає роботи електростанції (мотогодин або заправок). Списувати нічого.</div>`;
   x.gens.forEach(g => {
     h += card(`⚡ ${esc(g.name)}${g.invNo ? ' · інв. № ' + esc(g.invNo) : ''}`, kv([
@@ -705,7 +775,7 @@ ROUTES.pmm = id => {
     const d = UI.draft['pmm'] || { orderNo: so.no, orderDate: so.date, email: setting('docsEmail', ''), remember: true };
     h += card('Підтвердження формування', form('pmm', id,
       `<div class="grid2">${fInp('№ наказу (підстава у відомості)', 'orderNo', d.orderNo)}${fInp('Дата наказу', 'orderDate', d.orderDate, { type: 'date' })}</div>` +
-      fInp('Email, на який надіслати документи', 'email', d.email, { type: 'email', req: true, ph: 'name@example.com' }) +
+      emailField('Email, на який надіслати документи', d.email) +
       fChk('Запамʼятати email', 'remember', d.remember) +
       `<p class="small mute">Для кожної електростанції буде сформовано 2 документи за шаблонами: акт на списання ПММ (docx, А4 книжкова, односторонній друк) і відомість використання ПММ (xlsx, А4 книжкова, двосторонній друк: заправка — з лицьового боку, витрати — зі зворотного). Файли збережуться на Google Диску в папці «Списання ПММ / ${esc(x.from.slice(0, 7))}» і прийдуть листом на вказаний email.</p>`,
       { submit: 'Сформувати й надіслати' }));
@@ -718,9 +788,9 @@ FORMS.pmm = async (d, id) => {
   const o = get('Обʼєкти', t.objectId) || {};
   const x = pmmData(t);
   if (!x.gens.length) return toast('Немає роботи електростанції у звітах');
-  const email = String(d.email || '').trim();
-  if (!/^[^\s@,;]+@[^\s@,;]+\.[^\s@,;]+$/.test(email)) return toast('Вкажіть коректний email');
-  if (d.remember) { const cur = all('Налаштування').find(r => r.key === 'docsEmail'); if (!cur || String(cur.value) !== email) await save('Налаштування', cur ? { ...cur, value: email } : { key: 'docsEmail', value: email }); }
+  const email = normEmails(d.email);
+  if (!email) return toast('Вкажіть коректний email (кілька адрес — через кому)');
+  if (d.remember) await rememberEmail(email);
   const pmm = {
     taskId: t.id, from: x.from, to: x.to, docDate: x.docDate, orderNo: String(d.orderNo || '').trim(), orderDate: d.orderDate || '', email,
     leader: x.leaderId ? nameSur(personName(x.leaderId)) : '', leaderShort: x.leaderId ? shortName(personName(x.leaderId)) : '', mvo: o.contact ? nameSur(o.contact) : '',
@@ -769,7 +839,7 @@ ROUTES.shiftdocs = (n, from, to) => {
     ['Наказ', esc(tripOrderNo(s.tasks[0]) || '—')],
     ['Працівники', workers.map(id => esc(shortName(personName(id))) + (id === driver ? ' 🚐' : '') + ((get('Персонал', id) || {}).tabNo ? ` <span class="small mute">таб. ${esc(get('Персонал', id).tabNo)}</span>` : '')).join('<br>') || '<span class="bad">склад бригади не призначено</span>'],
     ['У відпустці весь період', off.map(id => esc(shortName(personName(id)))).join(', ')]
-  ]) + (sd ? `<p class="small mute">Попереднє формування: ${esc(fmtDT(sd.doc.sentAt))}, ${uaDate(sd.doc.dateFrom)} – ${uaDate(sd.doc.dateTo)}, ${esc(sd.doc.email || '')}</p>` : ''));
+  ]) + (sd ? `<p class="small mute">Попереднє формування: ${esc(fmtDT(sd.doc.sentAt))}, ${uaDate(sd.doc.dateFrom)} – ${uaDate(sd.doc.dateTo)}, ${esc(sd.doc.email || '')}${resendBtn('ДокументиВахт', sd.doc)}</p>` : ''));
   const warn = [];
   if (noTab.length) warn.push(`Немає табельного номера: ${noTab.map(id => `<a href="#/personform/${esc(id)}">${esc(shortName(personName(id)))}</a>`).join(', ')} — буде взято з попереднього порталу, якщо там є.`);
   if (noDist.length) warn.push(`Не вказано відстані / час у дорозі: ${noDist.map(o => `<a href="#/objform/${esc(o.id)}">${esc(o.short)}</a>`).join(', ')} — у СЗ буде «____», впишіть від руки або заповніть у картці обʼєкта.`);
@@ -779,7 +849,7 @@ ROUTES.shiftdocs = (n, from, to) => {
   h += card('Підтвердження формування', form('shiftdocs', `${n}|${from}|${to}`,
     fNum('Вартість проживання, грн за добу (на 1 особу)', 'price', d.price, { req: true, ph: 'напр. 1000' }) +
     `<p class="small mute" id="sdsum"></p>` +
-    fInp('Email, на який надіслати документи', 'email', d.email, { type: 'email', req: true, ph: 'name@example.com' }) +
+    emailField('Email, на який надіслати документи', d.email) +
     fChk('Запамʼятати email і вартість для наступних вахт', 'remember', d.remember) +
     `<p class="small mute">Буде сформовано 2 документи за шаблонами попереднього порталу: службову записку на пересувний характер робіт і відомість (розрахунок) витрат на проживання. Файли (xlsx) збережуться на Google Диску в папці «СЗ і відомості / ${esc(from.slice(0, 7))}» і прийдуть листом на вказаний email.</p>`,
     { submit: 'Сформувати й надіслати' }));
@@ -797,10 +867,11 @@ FORMS.shiftdocs = async (d, id) => {
   const [n, from, to] = id.split('|');
   const x = shiftData(n, from, to); if (!x) return toast('Вахту не знайдено');
   if (!(num(d.price) > 0)) return toast('Вкажіть вартість проживання');
-  const email = String(d.email || '').trim();
-  if (!/^[^\s@,;]+@[^\s@,;]+\.[^\s@,;]+$/.test(email)) return toast('Вкажіть коректний email');
+  const email = normEmails(d.email);
+  if (!email) return toast('Вкажіть коректний email (кілька адрес — через кому)');
   if (!x.workers.length) return toast('У бригади немає працівників на цей період');
-  if (d.remember) for (const [k, v] of [['docsEmail', email], ['lodgingPrice', String(num(d.price))]]) { const cur = all('Налаштування').find(r => r.key === k); if (!cur || String(cur.value) !== v) await save('Налаштування', cur ? { ...cur, value: v } : { key: k, value: v }); }
+  if (d.remember) await rememberEmail(email);
+  if (d.remember) for (const [k, v] of [ ['lodgingPrice', String(num(d.price))]]) { const cur = all('Налаштування').find(r => r.key === k); if (!cur || String(cur.value) !== v) await save('Налаштування', cur ? { ...cur, value: v } : { key: k, value: v }); }
   const objs = x.s.objects.map(oid => get('Обʼєкти', oid)).filter(Boolean);
   const shift = {
     brigade: n, from, to, price: num(d.price), email, car: x.car, orderNo: tripOrderNo(x.s.tasks[0]), base: setting('baseName', 'с. Юрівка'),
