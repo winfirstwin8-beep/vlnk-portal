@@ -792,10 +792,12 @@ const KIT_COND = ['справне', 'несправне', 'відсутнє'];
 const eqMethods = e => String(e.method || '').split(/[,;]+|\s+/).map(x => normM(x.trim())).filter(Boolean);
 /** Обладнання з методом «VT» (без сектора) підходить і до VT-W, і до VT-S. */
 const eqHasMethod = (e, m) => { const ms = eqMethods(e); return ms.includes(m) || ms.includes(m.split('-')[0]); };
-/** Групи для фільтра: RT, VT (VT-W, VT-S), UT (UT-W, UT-S, UTT), PT, HB; «Інше» — без методу або з іншим методом. */
-const EQ_GROUPS = ['RT', 'VT', 'UT', 'PT', 'HB'];
-const eqGroup = m => { const b = String(m || '').toUpperCase(); return b.startsWith('VT') ? 'VT' : b.startsWith('UT') ? 'UT' : EQ_GROUPS.includes(b) ? b : 'Інше'; };
-const eqInGroup = (e, g) => { const gs = eqMethods(e).map(eqGroup); return g === 'Інше' ? !gs.length || gs.every(x => x === 'Інше') : gs.includes(g); };
+/** Групи для фільтра: RT, VT (VT-W, VT-S), UT (UT-W, UT-S), UTT, PT, HB; «Інше» — без методу або з іншим методом. */
+const EQ_GROUPS = ['RT', 'VT', 'UT', 'UTT', 'PT', 'HB'];
+const eqGroup = m => { const b = String(m || '').toUpperCase(); return b === 'UTT' || /ТОВЩИН/.test(b) ? 'UTT' : b.startsWith('VT') ? 'VT' : b.startsWith('UT') ? 'UT' : EQ_GROUPS.includes(b) ? b : 'Інше'; };
+/** Методи обладнання групами для показу й форми: RT, VT, UT, UTT, PT, HB, Інше. */
+const eqGroups = e => [...new Set(eqMethods(e).map(eqGroup).map(g => g === 'UT' && /товщином/i.test(e.name || '') ? 'UTT' : g))].sort((a, b) => [...EQ_GROUPS, 'Інше'].indexOf(a) - [...EQ_GROUPS, 'Інше'].indexOf(b));
+const eqInGroup = (e, g) => { const gs = eqGroups(e); return g === 'Інше' ? !gs.length || gs.every(x => x === 'Інше') : gs.includes(g); };
 const eqKit = e => arr(e.kit).filter(k => k && String(k.name || '').trim());
 function kitSum(e) {
   const k = eqKit(e); if (!k.length) return null;
@@ -855,7 +857,7 @@ ROUTES.equip = () => {
   h += list.slice(0, UI.limit).map(e => {
     const cal = calibState(e), ks = kitSum(e);
     return `<div class="item"><a class="item-link" href="#/equipment/${esc(e.id)}"><div class="row between"><b>${esc(e.name)}</b>${eqCond(e)}</div>
-      <span class="small mute">інв. ${esc(e.invNo || '—')}${e.serial ? ' · зав. ' + esc(e.serial) : ''}${eqMethods(e).length ? ' · ' + esc(eqMethods(e).join(', ')) : ''}</span>
+      <span class="small mute">інв. ${esc(e.invNo || '—')}${e.serial ? ' · зав. ' + esc(e.serial) : ''}${eqGroups(e).length ? ' · ' + esc(eqGroups(e).join(', ')) : ''}</span>
       <span class="small">📍 ${esc(eqPlace(e))}</span>
       <span class="small">${ks ? badge('🧩 ' + esc(ks.text), ks.cls) + ' ' : ''}${badge('📏 ' + esc(cal.text), cal.cls)}${e.fileId || e.file ? ' ' + badge('📄 свідоцтво') : ''}</span></a>
       <div class="row gap">${canReport() ? `<a class="btn small" href="#/moveform/${esc(e.id)}">Передати</a>` : ''}${isLead() ? `<a class="btn small ghost" href="#/equipform/${esc(e.id)}">Змінити</a>` : ''}</div></div>`;
@@ -882,7 +884,7 @@ ROUTES.equipment = id => {
   const e = get('Обладнання', id); if (!e) return notFound();
   const cal = calibState(e), kit = eqKit(e), ks = kitSum(e);
   let h = card(esc(e.name), kv([
-    ['Методи контролю', esc(eqMethods(e).join(', ') || '—')], ['Інвентарний №', esc(e.invNo || '—')], ['Заводський №', esc(e.serial || '—')],
+    ['Методи контролю', esc(eqGroups(e).join(', ') || '—')], ['Інвентарний №', esc(e.invNo || '—')], ['Заводський №', esc(e.serial || '—')],
     ['Технічний стан', eqCond(e)], ['Де знаходиться', esc(eqPlace(e))],
     ...(e.holderType === 'працівник' ? [['Передано у користування', esc(personName(e.holderId)) + (e.handedAt ? ' · ' + uaDate(e.handedAt) : '')]] : []),
     ['Примітка', esc(e.note || '')]
@@ -970,13 +972,13 @@ ROUTES.equipform = (id = 'new') => {
   const dr = UI.draft[key];
   const d = dr || { ...(src || { condition: 'справне', holderType: 'склад' }), holder: src && src.holderType && src.holderType !== 'склад' ? src.holderType + (src.holderType === 'працівник' ? '' : ':' + src.holderId) : 'склад', workerId: src && src.holderType === 'працівник' ? src.holderId : '' };
   const kit = dr && dr._kit ? dr._kit : eqKit(src || {});
-  const ms = eqMethods(d);
+  const ms = eqGroups(d);
   const places = [['склад', 'Склад'], ...all('Авто').map(c => ['авто:' + c.id, 'Авто: ' + carName(c.id)]), ['працівник', 'Передано у користування']];
   const kitRows = kit.map((k, i) => `<div class="kitrow"><div class="grid2">${fInp('Найменування', `k_${i}_name`, k.name, { ph: 'напр. перетворювач П121-5,0' })}<div class="grid2">${fNum('К-сть', `k_${i}_qty`, k.qty || 1)}${fSel('Стан', `k_${i}_condition`, KIT_COND, k.condition || 'справне')}</div></div>
     <div class="row gap">${fInp('Зав. №', `k_${i}_serial`, k.serial, { cls: 'grow' })}<button type="button" class="btn small ghost" data-act="kitdel" data-i="${i}" title="Видалити">✕</button></div></div>`).join('');
   const body = fInp('Найменування', 'name', d.name, { req: true }) +
     `<div class="grid2">${fInp('Інвентарний №', 'invNo', d.invNo)}${fInp('Заводський №', 'serial', d.serial)}</div>
-     ${fMulti('Методи контролю', 'methods', [...METHODS, 'Загальне'], ms.length ? ms : [])}
+     ${fMulti('Методи контролю', 'methods', [...EQ_GROUPS, 'Інше'], ms.length ? ms : [])}
      ${fSel('Технічний стан', 'condition', CONDITIONS, d.condition)}
      ${fSel('Де знаходиться', 'holder', places, d.holder, { re: true })}
      ${d.holder === 'працівник' ? `<div class="grid2">${fSel('Працівник (у користуванні)', 'workerId', workerOpts(), d.workerId, { req: true, none: '— оберіть працівника —' })}${fInp('Дата передачі', 'handedAt', d.handedAt || today(), { type: 'date' })}</div>` : ''}
