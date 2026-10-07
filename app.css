@@ -314,7 +314,8 @@ details.fold[open] > summary { margin-bottom: 8px; }
 .tdrow .tdates .td-d b{font-size:15.5px}
 .tdrow .tdbtn{flex:0 0 auto;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;padding:4px 6px;line-height:1.15;font-size:11.5px;white-space:normal;text-align:center;max-width:84px}
 .tdrow .tdbtn i{font-style:normal;font-size:17px}
-@media (max-width:400px){.tdrow{flex-wrap:wrap}.tdrow .tdates{flex:1 1 100%}.tdrow .tdbtn{flex:1 1 0;flex-direction:row;max-width:none;padding:6px 8px;gap:6px}}
+.tdbtn.disabled{opacity:.45;cursor:not-allowed;filter:grayscale(1)}
+@media (max-width:520px){.tdrow{flex-wrap:wrap}.tdrow .tdates{flex:1 1 100%}.tdrow .tdbtn{flex:1 1 0;flex-direction:row;max-width:none;padding:6px 8px;gap:6px}}
 
 /* план робіт по днях */
 .dayplan{margin-top:10px;border-top:1px solid var(--line);padding-top:8px}
@@ -339,3 +340,8 @@ details.fold[open] > summary { margin-bottom: 8px; }
 .brcrew{margin-top:2px;line-height:1.35;font-weight:400}
 
 .note.okbox{background:color-mix(in srgb,#2e9e5b 14%,transparent);border-left:4px solid #2e9e5b}
+
+.tiprot{display:flex;justify-content:flex-end;align-items:center;gap:8px;margin-top:6px}
+.tiprot .btn{white-space:nowrap}
+.protovers{display:flex;flex-direction:column;gap:3px;margin-top:6px;padding-top:6px;border-top:1px dashed var(--line,#ddd)}
+.protovers .pv{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
