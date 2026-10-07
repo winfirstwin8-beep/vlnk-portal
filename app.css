@@ -257,9 +257,14 @@ fieldset.bq.bad { border-color: var(--bad); background: var(--bad-bg); }
 
 /* виразні дати завдання */
 .tdates { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 12px; box-sizing: border-box; max-width: 100%; margin: 6px 0 4px; padding: 6px 10px; border-radius: 10px; background: var(--line); border-left: 4px solid var(--mute); }
-.tdates.now { border-left-color: var(--pri); background: color-mix(in srgb, var(--pri) 12%, transparent); }
-.tdates.future { border-left-color: #e08a00; background: color-mix(in srgb, #e08a00 12%, transparent); }
-.tdates.past { opacity: .8; }
+.tdates.now { border-left-color: #1f9d55; background: color-mix(in srgb, #1f9d55 16%, transparent); }
+.tdates.now .td-n { color: #1a8a4a; }
+.tdates.future { border-left-color: #e0b100; background: color-mix(in srgb, #f2c200 22%, transparent); }
+.tdates.future .td-n { color: #9a7400; }
+.tdates.past { border-left-color: #9aa3ae; background: color-mix(in srgb, #9aa3ae 18%, transparent); }
+.tdates.past b, .tdates.past .td-n { color: var(--mute); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .tdates.now .td-n { color: #5fd08f; } :root:not([data-theme="light"]) .tdates.future .td-n { color: #f2c94c; } }
+:root[data-theme="dark"] .tdates.now .td-n { color: #5fd08f; } :root[data-theme="dark"] .tdates.future .td-n { color: #f2c94c; }
 .tdates .td-d { display: flex; flex-direction: column; line-height: 1.15; }
 .tdates .td-d small, .tdates .td-n small { font-size: 11px; color: var(--mute); }
 .tdates .td-d b { font-size: 17px; letter-spacing: .2px; }
