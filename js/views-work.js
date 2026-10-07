@@ -89,14 +89,16 @@ function taskItem(t) {
   const plan = planOf(t);
   return `<div class="item"><a class="item-link" href="${href}">
     <div class="row between"><b>${esc(o ? o.short : '—')}</b>${badge(esc(status), st)}</div>
-    ${isLead() && t.dateFrom ? `<div class="tdrow">${taskDates(t)}${objDocsBtn(t)}${pmmBtn(t)}</div>` : taskDates(t)}
+    ${isLead() && t.dateFrom ? `<div class="tdrow">${taskDates(t)}${objDocsBtn(t)}${pmmBtn(t)}${matBtn(t)}</div>` : taskDates(t)}
     ${objMeta(o)}
     <span class="small mute">${esc(t.workType || '')}${t.requestNo ? (t.workType ? ' · ' : '') + 'заявка № ' + esc(t.requestNo) : ''}${t.orderNo ? ' · наказ № ' + esc(t.orderNo) : ''}</span>
     <span class="small">${methodsOf(t.methods).map(x => badge(esc(x))).join(' ')} ${t.diameters ? 'Ø ' + esc(arr(t.diameters).join(', ')) : ''}</span>
     ${fact.n || Object.keys(plan).length ? `<span class="small mute">Виконано/план: ${donePlanText(fact, plan, t.methods)}${fact.n ? ' · ' + fact.n + ' зв.' : ''}</span>` : ''}
+    ${!isVisitor() ? `<div class="tiprot">${(n => n ? `<span class="small mute">протоколів: ${n}</span>` : '')(all('Протоколи').filter(p => p.objectId === t.objectId && (p.taskId === t.id || (p.date >= t.dateFrom && p.date <= (t.dateTo || t.dateFrom)))).length)}<span role="button" tabindex="0" class="btn small primary" data-act="protoreg" data-id="${esc(t.id)}">⬆ Завантажити протокол</span></div>` : ''}
   </a></div>`;
 }
 
+ACTS.protoreg = d => go('#/protocols/' + d.id);
 /** Обʼєкт завдання: повна назва, населений пункт, відповідальний від замовника з телефоном. */
 function taskObjCard(oid, t) {
   const o = get('Обʼєкти', oid); if (!o) return '';
@@ -504,6 +506,118 @@ FORMS.objdocs = async (d, id) => {
   for (const r of res.tabNos || []) { const p = get('Персонал', r.id); if (p) await applyLocal('Персонал', { ...p, tabNo: r.tabNo }); }
   delete UI.draft['objdocs']; UI.dirty = false;
   savedMsg('Звіти сформовано й надіслано на ' + email); history.back();
+};
+// ═════════ СПИСАННЯ МАТЕРІАЛІВ (вимоги на рентгенплівку і реактиви) ═════════
+const MALE_A = ['Микола', 'Ілля', 'Кузьма', 'Фома', 'Сава', 'Лука', 'Хома', 'Никита', 'Мина'];
+/** Родовий відмінок «Імʼя ПРІЗВИЩЕ»: «Руслан ГОНЧАРУК» → «Руслана ГОНЧАРУКА», «Юлія ІГНАТЕНКО» → «Юлії ІГНАТЕНКО». */
+function genitiveName(s) {
+  const a = String(s || '').trim().split(/\s+/); if (a.length < 2) return String(s || '').trim();
+  const [nm, sur] = a, fem = /[ая]$/i.test(nm) && !MALE_A.includes(nm);
+  let n;
+  if (/ія$/.test(nm)) n = nm.slice(0, -1) + 'ї';
+  else if (/я$/.test(nm)) n = nm.slice(0, -1) + 'і';
+  else if (/а$/.test(nm)) n = nm.slice(0, -1) + 'и';
+  else if (/[йь]$/.test(nm)) n = nm.slice(0, -1) + 'я';
+  else if (/о$/.test(nm)) n = nm.slice(0, -1) + 'а';
+  else n = nm + 'а';
+  const l = sur.toLowerCase();
+  let g;
+  if (fem) g = /((ськ|цьк|зьк)|(ов|ев|єв|ін|ин|їн))а$/.test(l) ? l.slice(0, -1) + 'ої' : /ая$/.test(l) ? l.slice(0, -2) + 'ої' : l;
+  else if (/ко$/.test(l)) g = l.slice(0, -1) + 'а';
+  else if (/ий$/.test(l)) g = l.slice(0, -2) + 'ого';
+  else if (/ій$/.test(l)) g = l.slice(0, -2) + 'ія';
+  else if (/[йь]$/.test(l)) g = l.slice(0, -1) + 'я';
+  else if (/а$/.test(l)) g = l.slice(0, -1) + 'и';
+  else if (/я$/.test(l)) g = l.slice(0, -1) + 'і';
+  else if (/[еиіоуюєї]$/.test(l)) g = l;
+  else g = l + 'а';
+  g = sur === sur.toUpperCase() ? g.toUpperCase() : g[0].toUpperCase() + g.slice(1);
+  return n + ' ' + g + (a.length > 2 ? ' ' + a.slice(2).join(' ') : '');
+}
+const lcFirst = s => { s = String(s || '').trim(); return s ? s[0].toLowerCase() + s.slice(1) : ''; };
+function matDocOf(t) {
+  const ds = all('ВимогиМатеріалів').filter(d => d.taskId === t.id).sort((x, y) => num(y.sentAt) - num(x.sentAt));
+  const exact = ds.find(d => d.dateFrom === t.dateFrom && d.dateTo === (t.dateTo || t.dateFrom));
+  return exact ? { doc: exact, exact: true } : ds[0] ? { doc: ds[0], exact: false } : null;
+}
+/** Витрата рентгенплівки, проявника і фіксажу за звітами обʼєкта в період завдання. */
+function matData(t) {
+  const from = t.dateFrom, to = t.dateTo || t.dateFrom;
+  const reps = all('Звіти').filter(r => r.objectId === t.objectId && r.date >= from && r.date <= to && !truthy(r.travel));
+  const sum = k => Math.round(reps.reduce((a, r) => a + repMat(r, k), 0) * 1000) / 1000;
+  const work = reps.map(r => r.date).sort();
+  const lastDay = work.length ? work[work.length - 1] : to;
+  return { from, to, reps, film: sum('film'), dev: sum('dev'), fix: sum('fix'), lastDay, docDate: addDays(lastDay, 1) };
+}
+function matBtn(t) {
+  const x = matData(t);
+  if (!(x.film > 0)) return `<span class="btn small ghost tdbtn disabled" aria-disabled="true" title="На обʼєкті в цей період не використовувалась рентгенплівка"><i>🧾</i>Списання матеріалів</span>`;
+  const sd = matDocOf(t);
+  return `<span role="button" tabindex="0" class="btn small ${sd && sd.exact ? 'ghost' : 'primary'} tdbtn" data-act="matreq" data-id="${esc(t.id)}" title="Вимоги на списання рентгенплівки і реактивів"><i>${sd && sd.exact ? '✓' : '🧾'}</i>Списання матеріалів</span>`;
+}
+ACTS.matreq = d => go('#/matreq/' + d.id);
+/** Одержувач / «Зі складу … в підзвіт» / «Отримав» — відповідальний від замовника. */
+function matRecipient(o) {
+  const pos = lcFirst(o.contactPos || (objResp(o) || {}).posada || '');
+  const nm = o.contact ? nameSur(o.contact) : '';
+  return { pos, name: nm, recipient: [pos, nm].filter(Boolean).join(' '), recipientGen: genitiveName(nm),
+    recipientSign: pos && nm ? pos + ' '.repeat(Math.max(3, 66 - pos.length - nm.length)) + nm : (pos || nm) };
+}
+const xDateWordsUA = s => s ? `${Number(s.slice(8, 10))} ${MONTHS_GEN[Number(s.slice(5, 7)) - 1]} ${s.slice(0, 4)} р.` : '';
+ROUTES.matreq = id => {
+  if (!isLead()) return denied();
+  const t = get('Завдання', id); if (!t) return notFound();
+  const o = get('Обʼєкти', t.objectId) || {};
+  const x = matData(t), r = matRecipient(o), sd = matDocOf(t);
+  let h = card(`${esc(o.short || '—')} · ${uaDate(x.from)} – ${uaDate(x.to)}`, (o.name ? `<p class="objfull">${esc(o.name)}</p>` : '') + kv([
+    ['Дата вимог', `Від <b>${esc(xDateWordsUA(x.docDate))}</b> <span class="small mute">наступний день після останнього дня робіт (${uaDate(x.lastDay)})</span>`],
+    ['Одержувач / Отримав', r.recipient ? esc(r.recipient) : '<span class="warn">не вказано відповідального від замовника</span>'],
+    ['Плівка рентгенівська, дм²', `<b>${fmtN3(x.film)}</b>`],
+    ['Проявник, л (затребувано)', fmtN3(x.dev)], ['Фіксаж, л (затребувано)', fmtN3(x.fix)],
+    ['ICP / ТОРО', o.icp ? 'ICP <b>' + esc(o.icp) + '</b>' : o.soSubOrder ? 'ТОРО-підзамовлення <b>' + esc(o.soSubOrder) + '</b> <span class="small mute">ICP не вказано</span>' : '<span class="warn">немає ні ICP, ні ТОРО-підзамовлення</span>'],
+    ['Звітів за період', String(x.reps.length)]
+  ]) + (sd ? `<p class="small mute">${sd.exact ? '✓ Уже сформовано' : '⚠ Формувалось на ' + uaDate(sd.doc.dateFrom) + ' – ' + uaDate(sd.doc.dateTo) + ', дати змінились'}: ${esc(fmtDT(sd.doc.sentAt))}, ${esc(sd.doc.email || '')}${arr(sd.doc.files).map(f => f && f.url ? ` · <a href="${esc(f.url)}" target="_blank" rel="noopener">${esc(/плівка/.test(f.name) ? 'плівка' : 'реактиви')} ↗</a>` : '').join('')}</p>` : ''));
+  if (!(x.film > 0)) return page('Списання матеріалів', h + `<div class="note warn">У щоденних звітах по цьому обʼєкту за ${uaDate(x.from)} – ${uaDate(x.to)} немає витрати рентгенплівки — вимоги не формуються.</div>`, '#/plan');
+  const warn = [];
+  if (!o.contact) warn.push(`Не вказано відповідального від замовника. <a href="#/objform/${esc(o.id)}">Заповнити в картці обʼєкта</a>`);
+  if (!o.icp && !o.soSubOrder) warn.push(`Немає № ICP і ТОРО-підзамовлення. <a href="#/objform/${esc(o.id)}">Заповнити</a>`);
+  if (warn.length) h += `<div class="note warn">${warn.join('<br>')}</div>`;
+  const d = UI.draft['matreq'] || { recipientGen: r.recipientGen, email: setting('docsEmail', ''), remember: true };
+  h += card('Підтвердження формування', form('matreq', id,
+    fInp('«Зі складу 1010 в підзвіт Z110» — кого (родовий відмінок)', 'recipientGen', d.recipientGen, { hint: 'перевірте відмінок, напр. «Руслана ГОНЧАРУКА»' }) +
+    fInp('Email, на який надіслати вимоги', 'email', d.email, { type: 'email', req: true, ph: 'name@example.com' }) +
+    fChk('Запамʼятати email', 'remember', d.remember) +
+    `<p class="small mute">Буде сформовано 2 вимоги (docx, А4 книжкова) за шаблонами: на плівку рентгенівську і на реактиви (проявник, фіксаж — у стовпці «Затребувано»). Файли збережуться на Google Диску в папці «Вимоги на матеріали / ${esc(x.from.slice(0, 7))}» і прийдуть листом на вказаний email.</p>`,
+    { submit: 'Сформувати й надіслати' }));
+  return page('Списання матеріалів', h, '#/plan');
+};
+ONCHANGE.matreq = d => { UI.draft['matreq'] = d; };
+FORMS.matreq = async (d, id) => {
+  const t = get('Завдання', id); if (!t) return toast('Завдання не знайдено');
+  const o = get('Обʼєкти', t.objectId) || {};
+  const x = matData(t), r = matRecipient(o);
+  if (!(x.film > 0)) return toast('Рентгенплівка не використовувалась');
+  const email = String(d.email || '').trim();
+  if (!/^[^\s@,;]+@[^\s@,;]+\.[^\s@,;]+$/.test(email)) return toast('Вкажіть коректний email');
+  if (d.remember) { const cur = all('Налаштування').find(q => q.key === 'docsEmail'); if (!cur || String(cur.value) !== email) await save('Налаштування', cur ? { ...cur, value: email } : { key: 'docsEmail', value: email }); }
+  const mat = {
+    taskId: t.id, from: x.from, to: x.to, docDate: x.docDate, email, film: x.film, dev: x.dev, fix: x.fix,
+    recipient: r.recipient, recipientGen: String(d.recipientGen || r.recipientGen).trim(), recipientSign: r.recipientSign,
+    object: { id: o.id, short: o.short || '', name: o.name || o.short || '', icp: o.icp || '', soSubOrder: o.soSubOrder || '' }
+  };
+  if (MODE === 'demo') {
+    await save('ВимогиМатеріалів', { taskId: t.id, objectId: o.id, dateFrom: x.from, dateTo: x.to, film: x.film, dev: x.dev, fix: x.fix, email, files: '[]', authorId: ME.personId || '', sentAt: Date.now() });
+    delete UI.draft['matreq']; UI.dirty = false;
+    await ask(`ДЕМО: у робочій версії буде сформовано й надіслано на ${email}:\n\n📎 Вимога рентгенплівка — ${fmtN3(x.film)} дм²\n📎 Вимога реактиви — проявник ${fmtN3(x.dev)} л, фіксаж ${fmtN3(x.fix)} л\n\nВід ${xDateWordsUA(x.docDate)}, одержувач: ${r.recipient || '—'}, в підзвіт ${mat.recipientGen || '—'}`, 'Зрозуміло', 'Закрити');
+    return go('#/plan');
+  }
+  if (!navigator.onLine) return toast('Потрібен інтернет: вимоги формуються на сервері');
+  toast('Формую вимоги…');
+  const res = await api({ action: 'genmat', mat }, 180000).catch(e => ({ ok: false, error: e.name === 'AbortError' ? 'сервер не відповів вчасно' : e.message }));
+  if (!res.ok) return toast('Не вдалося сформувати: ' + (res.error === 'Невідома дія' ? 'оновіть серверну частину порталу' : res.error));
+  await applyLocal('ВимогиМатеріалів', res.row);
+  delete UI.draft['matreq']; UI.dirty = false;
+  savedMsg('Вимоги сформовано й надіслано на ' + email); history.back();
 };
 // ═════════ СПИСАННЯ ПММ ЕЛЕКТРОСТАНЦІЇ ═════════
 /** «Кушнір Сергій Миколайович» → «Сергій КУШНІР». */

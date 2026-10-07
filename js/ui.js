@@ -93,7 +93,7 @@ function opt(options, value) {
   return options.map(o => { const [v, t] = Array.isArray(o) ? o : [o, o]; return `<option value="${esc(v)}" ${String(v) === String(value ?? '') ? 'selected' : ''}>${esc(t)}</option>`; }).join('');
 }
 function fInp(label, name, value, o = {}) {
-  return `<label class="f ${o.cls || ''}"><span>${label}${o.req ? ' *' : ''}</span><input name="${name}" type="${o.type || 'text'}" value="${esc(value ?? '')}" ${o.req ? 'required' : ''} ${o.step ? `step="${o.step}"` : ''} ${o.min !== undefined ? `min="${o.min}"` : ''} ${o.ph ? `placeholder="${esc(o.ph)}"` : ''} ${o.re ? 'data-re' : ''} ${o.mode ? `inputmode="${o.mode}"` : ''} ${o.list ? `list="${o.list}"` : ''} autocomplete="off">${o.hint ? `<small>${o.hint}</small>` : ''}</label>`;
+  return `<label class="f ${o.cls || ''}"><span>${label}${o.req ? ' *' : ''}</span><input name="${name}" type="${o.type || 'text'}" value="${esc(value ?? '')}" ${o.req ? 'required' : ''} ${o.step ? `step="${o.step}"` : ''} ${o.min !== undefined ? `min="${o.min}"` : ''} ${o.ph ? `placeholder="${esc(o.ph)}"` : ''} ${o.re ? 'data-re' : ''} ${o.mode ? `inputmode="${o.mode}"` : ''} ${o.list ? `list="${o.list}"` : ''} ${o.ro ? 'readonly' : ''} autocomplete="off">${o.hint ? `<small>${o.hint}</small>` : ''}</label>`;
 }
 function fNum(label, name, value, o = {}) { return fInp(label, name, value, { type: 'number', step: 'any', min: 0, mode: 'decimal', ...o }); }
 function fSel(label, name, options, value, o = {}) {
@@ -200,6 +200,18 @@ document.addEventListener('change', e => {
     queueOrder(el.dataset.upload, f).then(r => {
       toast(r === 'saved' ? 'Наказ збережено (демо)' : navigator.onLine ? 'Наказ відправляється…' : 'Наказ збережено на телефоні — відправиться, коли зʼявиться інтернет');
       render();
+    }).catch(err => toast('Помилка: ' + err.message));
+    return;
+  }
+  if (el.dataset.protoupd && el.files && el.files[0]) {
+    const f = el.files[0]; el.value = '';
+    const p = get('Протоколи', el.dataset.protoupd); if (!p) return;
+    ask(`Завантажити оновлену версію протоколу${p.number ? ' № ' + p.number : ''} (${p.method || 'НК'})?\n\nФайл: ${f.name}\nПопередня версія залишиться в папці обʼєкта, нова буде підписана «оновлена версія … від ${uaDate(today())} (${meShort() || 'автор'})».`, 'Завантажити').then(ok => {
+      if (!ok) return;
+      return queueRowFile('Протоколи', p.id, f, { by: meShort() }).then(r => {
+        toast(r === 'saved' ? 'Оновлену версію збережено (демо)' : navigator.onLine ? 'Оновлена версія відправляється…' : 'Оновлену версію збережено на телефоні — відправиться, коли зʼявиться інтернет');
+        render();
+      });
     }).catch(err => toast('Помилка: ' + err.message));
     return;
   }

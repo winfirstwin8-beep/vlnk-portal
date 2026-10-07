@@ -45,11 +45,42 @@ function protoItem(p, withObj) {
     const canDel = isLead() || (!isVisitor() && p.authorId && p.authorId === ME.personId);
     const has = !!(p.file || p.fileId) || pend;
     return `<div class="item"><div class="row between"><b>Протокол${p.number ? ' № ' + esc(p.number) : ''}${withObj ? ` · <a href="#/object/${esc(p.objectId)}">${esc(objShort(p.objectId))}</a>` : ''}</b>${badge(esc(p.method || 'НК'), 'pri')}</div>
-      <span class="small mute">${uaDate(p.date)}${p.brigade ? ' · ' + brName(p.brigade) : ''}${p.authorId ? ' · ' + esc(shortName(personName(p.authorId))) : ''}${p.note ? ' · ' + esc(p.note) : ''}</span>
+      <span class="small mute">${uaDate(p.date)}${p.brigade ? ' · ' + brName(p.brigade) : ''}${p.enteredBy ? ' · вніс: ' + esc(p.enteredBy) : p.authorId ? ' · ' + esc(shortName(personName(p.authorId))) : ''}${p.note ? ' · ' + esc(p.note) : ''}</span>
       ${p.fileName ? `<span class="small ordername">📄 ${esc(p.fileName)}${String(p.file || '').startsWith('data:') || DB.cachedFiles.has(p.fileId) || DB.cachedFiles.has('local-' + p.id) ? ' <span class="ok">✓ офлайн</span>' : ''}</span>` : ''}
       <div class="row gap order">${has ? `<button type="button" class="btn small primary" data-act="protodl" data-id="${esc(p.id)}">⬇ Завантажити</button>${DB.mailQ.has(p.id) ? badge('✉ лист у черзі', 'warn') : `<button type="button" class="btn small ghost" data-act="protomail" data-id="${esc(p.id)}">✉ На пошту</button>`}${navigator.canShare ? `<button type="button" class="btn small ghost" data-act="protoshare" data-id="${esc(p.id)}">↗ Поділитися</button>` : ''}` : '<span class="small mute">файл не додано</span>'}
-      ${pend ? badge('⏳ відправляється', 'warn') : ''}${canDel ? `<button type="button" class="btn small ghost" data-act="del" data-t="Протоколи" data-id="${esc(p.id)}" data-back="${esc(location.hash)}">Видалити</button>` : ''}</div></div>`;
+      ${has && !pend && !isVisitor() ? `<label class="btn small ghost upl">⬆ Оновлена версія<input type="file" accept="application/pdf,image/*,.doc,.docx,.xls,.xlsx" data-protoupd="${esc(p.id)}"></label>` : ''}
+      ${pend ? badge('⏳ відправляється', 'warn') : ''}${canDel ? `<button type="button" class="btn small ghost" data-act="del" data-t="Протоколи" data-id="${esc(p.id)}" data-back="${esc(location.hash)}">Видалити</button>` : ''}</div>${protoVersions(p)}</div>`;
 }
+/** Попередні версії протоколу (після завантаження оновленої). */
+function protoVersions(p) {
+  const vs = arr(p.versions);
+  if (!vs.length) return '';
+  const cur = vs.length + 1;
+  return `<div class="protovers small"><span>${badge('версія ' + cur, 'ok')} ${p.verBy ? 'оновив ' + esc(p.verBy) : ''}${p.verAt ? ' · ' + esc(fmtDT(p.verAt)) : ''}</span>
+    <span class="mute">Попередні версії:</span>${vs.slice().reverse().map(x => `<span class="pv">v${esc(x.v)} · ${esc(x.fileName || 'файл')}${x.by ? ' · ' + esc(x.by) : ''} <button type="button" class="btn small ghost" data-act="protovdl" data-id="${esc(p.id)}" data-v="${esc(x.v)}">⬇</button></span>`).join('')}</div>`;
+}
+ACTS.protovdl = async d => {
+  const p = get('Протоколи', d.id); if (!p) return;
+  const x = arr(p.versions).find(v => String(v.v) === String(d.v)); if (!x) return toast('Версію не знайдено');
+  try {
+    let f;
+    if (String(x.file || '').startsWith('data:')) { const [head, data] = x.file.split(','); f = { name: x.fileName, mime: head.slice(5).replace(';base64', ''), data }; }
+    else {
+      const hit = x.fileId ? await IDB.get('files', x.fileId) : null;
+      if (hit) f = hit;
+      else {
+        if (!navigator.onLine) return toast('Немає інтернету');
+        toast('Готую файл…');
+        const res = await api({ action: 'getfile', table: 'Протоколи', id: p.id, ver: x.v }, 120000);
+        if (!res.ok) return toast(res.error);
+        f = { name: res.name, mime: res.mime, data: res.data };
+        await IDB.putMany('files', [[res.fileId, f]]); DB.cachedFiles.add(res.fileId);
+      }
+    }
+    const r = await saveFile(f.name || 'Протокол', fileToBlob(f));
+    toast(r === 'declined' ? 'Збереження скасовано' : 'Завантажено: ' + (f.name || ''));
+  } catch (e) { toast(e.message); }
+};
 function protoSection(oid, taskId) {
   const all_ = all('Протоколи').filter(p => p.objectId === oid)
     .sort((a, b) => String(b.date).localeCompare(String(a.date)) || String(b.number).localeCompare(String(a.number), 'uk', { numeric: true }));
@@ -81,12 +112,15 @@ FORMS.proto = async (d, oid, f) => {
   const dup = all('Протоколи').find(p => p.objectId === oid && p.method === d.method && String(p.number).trim() === String(d.number).trim());
   if (dup && !await ask(`Протокол ${d.method} № ${d.number} на цьому обʼєкті вже є. Додати ще один?`)) return;
   delete d.file;
-  const row = await save('Протоколи', { ...d, objectId: oid, taskId: f.dataset.task || '', authorId: ME.personId || '' });
+  const by = ME.personId && get('Персонал', ME.personId) ? meShort() : String(d.enteredBy || '').trim();
+  if (f.querySelector('[name=enteredBy]') && !by) return toast('Вкажіть прізвище працівника, який вносить дані');
+  const row = await save('Протоколи', { ...d, enteredBy: by || meShort(), objectId: oid, taskId: f.dataset.task || UI.regTask || '', authorId: ME.personId || '' });
   try {
     const r = await queueProto(row.id, file);
     toast(r === 'saved' ? 'Протокол збережено' : navigator.onLine ? 'Протокол відправляється…' : 'Протокол збережено на телефоні — відправиться, коли зʼявиться інтернет');
   } catch (e) { toast('Файл не додано: ' + e.message); }
-  UI.dirty = false; UI.protoOpen = false; UI.regObj = oid; render();
+  delete UI.draft['proto:' + (f.dataset.id || 'new')];
+  UI.dirty = false; UI.protoOpen = false; UI.regObj = oid; UI.regMeth = ''; render();
 };
 /** Наступний № протоколу для обʼєкта й методу (підказка; можна змінити). */
 function nextProtoNo(oid, method) {
@@ -94,24 +128,40 @@ function nextProtoNo(oid, method) {
   return ns.length ? String(Math.max(...ns) + 1) : '1';
 }
 /** Реєстрація протоколів НК по обʼєктах: форма + реєстр. Файл зберігається на Диску в папці «Протоколи НК / <коротка назва обʼєкта>». */
-ROUTES.protocols = () => {
+/** Бригада, що зараз виконує роботи на обʼєкті (завдання в роботі), інакше — з останнього завдання. */
+function objWorkBrigade(oid) {
+  const ts = all('Завдання').filter(t => t.objectId === oid);
+  const w = ts.find(isTaskInWork) || ts.sort((a, b) => String(b.dateFrom).localeCompare(String(a.dateFrom)))[0];
+  return w ? String(w.brigade) : '';
+}
+ROUTES.protocols = tid => {
   const vis = isVisitor();
+  const t = tid ? get('Завдання', tid) : null;
+  // прийшли з картки обʼєкта на сторінці «Завдання»: обʼєкт і бригада — з завдання, метод — вручну
+  if (t && UI.regTask !== tid) { UI.regTask = tid; UI.regObj = t.objectId; UI.regMeth = ''; delete UI.draft['proto:new']; }
+  if (!t && UI.regTask) { UI.regTask = ''; }
   const m = UI.regMonth || '';
   const fo = UI.regObjF || '';
   let h = '';
   if (!vis) {
-    // лише обʼєкти зі статусом «в роботі» (є завдання, що виконується зараз)
-    const cur = new Set(all('Завдання').filter(isTaskInWork).map(t => t.objectId));
+    // лише обʼєкти зі статусом «в роботі» (є завдання, що виконується зараз) + обʼєкт завдання, з якого перейшли
+    const cur = new Set(all('Завдання').filter(isTaskInWork).map(x => x.objectId));
+    if (t) cur.add(t.objectId);
     const opts = objOpts().filter(o => cur.has(o[0]));
     const oid = UI.regObj && cur.has(UI.regObj) ? UI.regObj : '';
-    const meth = UI.regMeth || 'RT';
-    const mb = myBrigade(today()) || {};
+    const meth = UI.regMeth || '';
+    const dr = UI.draft['proto:new'] || {};
+    const brig = dr.brigade !== undefined ? dr.brigade : t && t.objectId === oid ? String(t.brigade) : oid ? objWorkBrigade(oid) : ((myBrigade(today()) || {}).num || '');
+    const own = ME.personId && get('Персонал', ME.personId);
+    const by = own ? meShort() : (dr.enteredBy || '');
+    const no = dr.number !== undefined && dr.number !== '' ? dr.number : oid && meth ? nextProtoNo(oid, meth) : '';
     h += card('Зареєструвати протокол', `<form class="form" data-form="proto" data-id="" novalidate>
-      ${fSel('Обʼєкт', 'objectId', opts, oid, { req: true, none: opts.length ? '— оберіть обʼєкт у роботі —' : '— немає обʼєктів у роботі —', re: true, hint: 'показано лише обʼєкти зі статусом «в роботі»; для інших — картка обʼєкта → «Протоколи НК»' })}
-      <div class="grid2">${fSel('Метод контролю', 'method', PROTO_METHODS, meth, { req: true, re: true })}${fInp('№ протоколу', 'number', oid ? nextProtoNo(oid, meth) : '', { req: true })}</div>
-      <div class="grid2">${fInp('Дата видачі', 'date', today(), { type: 'date', req: true })}${fSel('Бригада', 'brigade', BRIGADES.map(n => [n, brName(n)]), mb.num || '', { none: '—' })}</div>
-      <label class="f"><span>Файл протоколу *</span><input type="file" name="file" accept="application/pdf,image/*,.doc,.docx,.xls,.xlsx"><small>Зберігається на Google Диску в папці «Протоколи НК / ${oid ? esc(objShort(oid)) : 'коротка назва обʼєкта'}» — папка створюється автоматично</small></label>
-      ${fInp('Примітка', 'note', '', { ph: 'напр. стики № 12–24, Ø 530' })}
+      ${fSel('Обʼєкт', 'objectId', opts, oid, { req: true, none: opts.length ? '— оберіть обʼєкт у роботі —' : '— немає обʼєктів у роботі —', re: true, hint: t ? 'обʼєкт завдання бригади' : 'показано лише обʼєкти зі статусом «в роботі»; для інших — картка обʼєкта → «Протоколи НК»' })}
+      <div class="grid2">${fSel('Метод контролю', 'method', PROTO_METHODS, meth, { req: true, re: true, none: '— оберіть метод —' })}${fInp('№ протоколу', 'number', no, { req: true })}</div>
+      <div class="grid2">${fInp('Дата видачі', 'date', dr.date || today(), { type: 'date', req: true })}${fSel('Бригада', 'brigade', BRIGADES.map(n => [n, brName(n)]), brig, { none: '—', hint: oid ? 'бригада, що виконує роботи на обʼєкті' : '' })}</div>
+      ${fInp('Дані вносить (прізвище працівника)', 'enteredBy', by, own ? { ro: true, hint: 'за вашим входом у портал' } : { req: true, ph: 'Прізвище І.Б.' })}
+      <label class="f"><span>Файл протоколу *</span><input type="file" name="file" accept="application/pdf,image/*,.doc,.docx,.xls,.xlsx"><small>Зберігається на Google Диску в папці «Протоколи НК / ${oid ? esc(objShort(oid)) : 'коротка назва обʼєкта'}» — папка створюється автоматично. Оновлену версію можна додати пізніше кнопкою «⬆ Оновлена версія» в реєстрі — обидві версії зберігаються в цій папці.</small></label>
+      ${fInp('Примітка', 'note', dr.note || '', { ph: 'напр. стики № 12–24, Ø 530' })}
       <div class="form-actions"><button type="submit" class="btn primary">Зареєструвати</button></div></form>`);
   }
   let list = all('Протоколи').slice();
@@ -122,9 +172,13 @@ ROUTES.protocols = () => {
   const objs = [...new Set(all('Протоколи').map(p => p.objectId))].map(id => [id, objShort(id)]).sort((a, b) => String(a[1]).localeCompare(String(b[1]), 'uk'));
   h += `<div class="filters">${fSel('Обʼєкт', 'rf', objs, fo, { none: 'Усі обʼєкти' }).replace('name="rf"', 'data-set="regObjF"')}${fSel('Місяць', 'rm', months.map(x => [x, monthName(x)]), m, { none: 'Усі місяці' }).replace('name="rm"', 'data-set="regMonth"')}</div>`;
   h += card('Реєстр протоколів · ' + list.length, list.length ? list.slice(0, UI.plimit || 30).map(p => protoItem(p, true)).join('') + (list.length > (UI.plimit || 30) ? `<button class="btn ghost wide" data-act="pmore">Показати ще</button>` : '') : empty('Протоколів не знайдено'));
-  return page('Протоколи НК', h, '#/menu');
+  return page('Протоколи НК', h, tid ? '#/tasks' : '#/menu');
 };
-ONCHANGE.proto = (d, field) => { if (field === 'objectId') UI.regObj = d.objectId; if (field === 'method') UI.regMeth = d.method; d.number = d.objectId ? nextProtoNo(d.objectId, d.method) : ''; };
+ONCHANGE.proto = (d, field) => {
+  if (field === 'objectId') { UI.regObj = d.objectId; d.brigade = d.objectId ? objWorkBrigade(d.objectId) : ''; }
+  if (field === 'method') UI.regMeth = d.method;
+  d.number = d.objectId && d.method ? nextProtoNo(d.objectId, d.method) : '';
+};
 ACTS.pmore = () => { UI.plimit = (UI.plimit || 20) + 20; render(); };
 ACTS.protodl = async d => {
   try {

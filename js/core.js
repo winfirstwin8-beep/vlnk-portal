@@ -1,11 +1,12 @@
 /* Портал ВЛНК — ядро: утиліти, локальна база (IndexedDB), синхронізація, розрахунки */
 'use strict';
 
-const VER = '1.8.49';
+const VER = '1.8.50';
 /** Мінімальна версія серверного коду (Code.gs), з якою працює цей застосунок. */
 const NEED_API = '1.8.18';
 /** Що нового — показується один раз після оновлення (коротко, для працівників). */
 const CHANGES = {
+  '1.8.50': ['Завдання: у картці обʼєкта — кнопка «⬆ Завантажити протокол» (відкриває реєстрацію з обʼєктом і бригадою; метод — вручну) і «🧾 Списання матеріалів» (вимоги на рентгенплівку й реактиви; неактивна, якщо плівка не використовувалась)', 'Реєстрація протоколів: зазначається, хто вносить дані (за входом — автоматично); можна завантажити оновлену версію протоколу — обидві версії зберігаються в папці обʼєкта, нова підписана'],
   '1.8.49': ['Щоденний звіт: після відправки — «Ваш звіт успішно збережено» з часом; якщо звіт бригади за сьогодні вже є — замість нового бланка пропонується «Редагувати існуючий звіт»; фіксується, хто створив звіт і хто вносив зміни'],
   '1.8.48': ['Списання ПММ: дати прописом (13 жовтня 2026 р.) у шапці та після № акта і відомості; електростанція і рядок пального — в один рядок; у відомості ПІБ підзвітної особи — прізвище й ініціали, 10 шрифтом'],
   '1.8.47': ['Головна: новини — на початку сторінки; у «Бригади сьогодні» — склад бригад; після «Моє завдання на сьогодні» — проблемні питання зі звітів за 7 днів'],
@@ -382,17 +383,27 @@ async function queueOrder(taskId, file) {
 const FILE_KIND = { 'Протоколи': 'proto', 'Документи': 'docfile', 'Сертифікати': 'certfile' };
 const KIND_TBL = { proto: 'Протоколи', docfile: 'Документи', certfile: 'Сертифікати' };
 const KIND_ACT = { proto: 'uploadproto', docfile: 'uploaddoc', certfile: 'uploadcert' };
-async function queueRowFile(table, id, file) {
+async function queueRowFile(table, id, file, extra = {}) {
   const f = await readFileForUpload(file);
   if (MODE === 'demo') {
     const p = get(table, id);
-    await save(table, { ...p, file: 'data:' + f.mime + ';base64,' + f.data, fileName: f.name });
+    const upd = { file: 'data:' + f.mime + ';base64,' + f.data, fileName: f.name };
+    // оновлена версія протоколу: попередня зберігається в versions, нова підписується
+    if (table === 'Протоколи' && p.file) {
+      const vs = arr(p.versions), v = vs.length + 2, by = extra.by || '';
+      vs.push({ v: v - 1, fileName: p.fileName || '', file: p.file, at: p.verAt || '', by: p.verBy || p.enteredBy || '' });
+      const ext = (String(f.name).match(/\.[A-Za-z0-9]{2,5}$/) || [''])[0];
+      const o = get('Обʼєкти', p.objectId) || {};
+      upd.fileName = `Протокол${p.number ? ' № ' + p.number : ''} — ${p.method || 'НК'} — ${o.short || ''} ${p.date || ''} — оновлена версія ${v} від ${uaDate(today())}${by ? ' (' + by + ')' : ''}${ext}`;
+      Object.assign(upd, { versions: JSON.stringify(vs), verAt: Date.now(), verBy: by });
+    }
+    await save(table, { ...p, ...upd });
     return 'saved';
   }
   // одразу кладемо копію в кеш телефону — автор може відкрити файл ще до відправки
   const key = 'local-' + id;
   await IDB.putMany('files', [[key, f]]); DB.cachedFiles.add(key);
-  await IDB.putMany('uploads', [[undefined, { kind: FILE_KIND[table], taskId: id, ...f, at: Date.now() }]]);
+  await IDB.putMany('uploads', [[undefined, { kind: FILE_KIND[table], taskId: id, ...f, ...(extra.by ? { by: extra.by } : {}), at: Date.now() }]]);
   DB.upTasks.add(id);
   syncSoon();
   return 'queued';
@@ -441,7 +452,7 @@ async function sendUploads() {
     if (KIND_TBL[u.kind]) {
       const tbl = KIND_TBL[u.kind];
       try {
-        const res = await api({ action: KIND_ACT[u.kind], id: u.taskId, name: u.name, mime: u.mime, data: u.data }, 180000);
+        const res = await api({ action: KIND_ACT[u.kind], id: u.taskId, name: u.name, mime: u.mime, data: u.data, ...(u.by ? { by: u.by } : {}) }, 180000);
         if (res.ok) {
           const p = get(tbl, u.taskId);
           if (p) await applyLocal(tbl, { ...p, ...res.file });
