@@ -850,7 +850,7 @@ ROUTES.equip = () => {
   h += `<input class="search" type="search" placeholder="Пошук: назва, інв. №, зав. №, комплект" value="${esc(UI.eq || '')}" data-set="eq">`;
   h += seg('emeth', [['', 'Усі методи'], ...[...EQ_GROUPS, 'Інше'].map(m => [m, m + ' ' + cntM(m)])], [...EQ_GROUPS, 'Інше', ''].includes(mf) ? mf : '').replace('class="seg"', 'class="seg wrap"');
   h += `<div class="filters">${fSel('Де знаходиться', 'x', placeOpts, hf, { none: 'Усі місця' }).replace('name="x"', 'data-set="eh"')}${fSel('У користуванні', 'y', users, wf, { none: users.length ? 'Усі працівники' : '— нікому не передано —' }).replace('name="y"', 'data-set="ew"')}</div>`;
-  if (isLead()) h += fab('#/equipform/new');
+  if (isLead()) h += fab('#/equipform/new') + `<button class="btn ghost small" data-act="importkits">⬇ Комплекти з таблиці Портал_ВЛНК</button>`;
   h += `<p class="small mute">Знайдено: ${list.length}</p>`;
   h += list.slice(0, UI.limit).map(e => {
     const cal = calibState(e), ks = kitSum(e);
@@ -861,6 +861,20 @@ ROUTES.equip = () => {
       <div class="row gap">${canReport() ? `<a class="btn small" href="#/moveform/${esc(e.id)}">Передати</a>` : ''}${isLead() ? `<a class="btn small ghost" href="#/equipform/${esc(e.id)}">Змінити</a>` : ''}</div></div>`;
   }).join('') + (list.length ? more(list.length) : empty('Обладнання не знайдено'));
   return page('Обладнання', h, '#/menu');
+};
+ACTS.importkits = async () => {
+  if (MODE === 'demo') return toast('У демо таблиця Портал_ВЛНК недоступна');
+  if (!navigator.onLine) return toast('Потрібен інтернет');
+  if (!await ask('Перенести склад комплектів з аркуша «ОбладнанняВЛНК» таблиці Портал_ВЛНК?\n\nРядки зі стовпцем «Входить до комплекту» стануть одиницями комплекту основного обладнання (зі заводським № і станом), а їхні окремі записи в списку обладнання буде прибрано. Склад комплекту в картках, де він є в таблиці, буде замінено.', 'Перенести')) return;
+  toast('Читаю таблицю Портал_ВЛНК…');
+  const r = await api({ action: 'importkits' }, 180000).catch(e => ({ ok: false, error: e.message }));
+  if (!r.ok) return toast('Не вдалося: ' + (r.error === 'Невідома дія' ? 'оновіть серверну частину порталу' : r.error));
+  for (const row of r.rows || []) await applyLocal('Обладнання', row);
+  await ask(`Комплектів оновлено: ${r.sets}\nОдиниць у комплектах: ${r.units}\nОкремих записів одиниць прибрано: ${r.removed}` +
+    (r.fixed.length ? `\n\nУ таблиці ${r.fixed.length} рядків мали неточний ID основного обладнання (зсув при протягуванні) — привʼязано автоматично:\n${r.fixed.slice(0, 12).join('\n')}${r.fixed.length > 12 ? '\n…' : ''}` : '') +
+    (r.lost.length ? `\n\nНе знайдено основного обладнання для: ${r.lost.join(', ')}` : '') +
+    (r.missing.length ? `\n\nОсновного обладнання немає на порталі: ${r.missing.join(', ')} — спершу імпортуйте обладнання.` : ''), 'Гаразд', 'Закрити');
+  render();
 };
 /** Розширена картка обладнання: місце, комплект зі станом кожної одиниці, калібрування, історія переміщень. */
 ROUTES.equipment = id => {
