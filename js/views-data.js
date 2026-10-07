@@ -830,7 +830,7 @@ ROUTES.equip = () => {
     const mv = all('Переміщення').slice().sort((a, b) => String(b.date).localeCompare(String(a.date)) || (b.updatedAt || 0) - (a.updatedAt || 0));
     h += mv.slice(0, UI.limit).map(m => { const e = get('Обладнання', m.equipId) || {}; return `<a class="item" href="#/equipment/${esc(m.equipId)}"><div class="row between"><b>${esc(e.name || '—')}</b><span class="small">${uaDate(m.date)}</span></div>
       <span class="small">${esc(holderName(m.fromType, m.fromId))} → <b>${esc(holderName(m.toType, m.toId))}</b></span>
-      <span class="small mute">Стан: ${esc(m.condition || '—')}${m.note ? ' · ' + esc(m.note) : ''} · ${esc(personName(m.authorId))}</span></a>`; }).join('') + more(mv.length) || empty('Переміщень немає');
+      <span class="small mute">${m.receiverId && m.toType !== 'працівник' ? 'Отримав: ' + esc(shortName(personName(m.receiverId))) + ' · ' : ''}Стан: ${esc(m.condition || '—')}${m.note ? ' · ' + esc(m.note) : ''} · ${esc(personName(m.authorId))}</span></a>`; }).join('') + more(mv.length) || empty('Переміщень немає');
     return page('Обладнання', h, '#/menu');
   }
   const all_ = all('Обладнання');
@@ -897,7 +897,7 @@ ROUTES.equipment = id => {
   ]) + calibFileBlock(e));
   h += card('Комплект' + (ks ? ' · ' + ks.units + ' од.' : ''), kit.length ? `<div class="tblwrap"><table class="tbl kittbl"><thead><tr><th>№</th><th>Найменування</th><th>К-сть</th><th>Зав. №</th><th>Стан</th></tr></thead><tbody>${kit.map((k, i) => `<tr><td>${i + 1}</td><td>${esc(k.name)}</td><td>${num(k.qty) || 1}</td><td>${esc(k.serial || '')}</td><td>${badge(esc(k.condition || 'справне'), k.condition === 'несправне' || k.condition === 'відсутнє' ? 'bad' : 'ok')}</td></tr>`).join('')}</tbody></table></div><p class="small">${badge(esc(ks.text), ks.cls)}</p>` : empty('Склад комплекту не внесено') + (isLead() ? `<a class="small" href="#/equipform/${esc(id)}">Додати склад комплекту ›</a>` : ''));
   const mv = all('Переміщення').filter(m => m.equipId === id).sort((a, b) => String(b.date).localeCompare(String(a.date)));
-  h += card('Історія переміщень · ' + mv.length, mv.length ? mv.map(m => `<div class="item"><div class="row between"><span class="small">${esc(holderName(m.fromType, m.fromId))} → <b>${esc(holderName(m.toType, m.toId))}</b></span><span class="small">${uaDate(m.date)}</span></div><span class="small mute">Стан: ${esc(m.condition || '—')}${m.note ? ' · ' + esc(m.note) : ''}${m.authorId ? ' · ' + esc(shortName(personName(m.authorId))) : ''}</span></div>`).join('') : empty('Переміщень не було'));
+  h += card('Історія переміщень · ' + mv.length, mv.length ? mv.map(m => `<div class="item"><div class="row between"><span class="small">${esc(holderName(m.fromType, m.fromId))} → <b>${esc(holderName(m.toType, m.toId))}</b></span><span class="small">${uaDate(m.date)}</span></div><span class="small mute">${m.receiverId && m.toType !== 'працівник' ? 'Отримав: ' + esc(shortName(personName(m.receiverId))) + ' · ' : ''}Стан: ${esc(m.condition || '—')}${m.note ? ' · ' + esc(m.note) : ''}${m.authorId ? ' · передав ' + esc(shortName(personName(m.authorId))) : ''}</span></div>`).join('') : empty('Переміщень не було'));
   return page('Обладнання', h, '#/equip');
 };
 // ── свідоцтво про калібрування: файл, завантаження, надсилання
@@ -1018,20 +1018,27 @@ ROUTES.moveform = id => {
   const e = get('Обладнання', id);
   if (!e) return notFound();
   const ks = kitSum(e);
+  const d = UI.draft['move:' + id] || { place: '', toPerson: '', date: today(), condition: e.condition || 'справне', note: '' };
+  const places = [['склад', 'Склад'], ...all('Авто').map(c => ['авто:' + c.id, 'Авто: ' + carName(c.id)]), ['працівник', 'У користування працівнику']];
+  const use = d.place === 'працівник';
   const body = `<div class="note">${esc(e.name)} · інв. ${esc(e.invNo || '—')}<br>Зараз: <b>${esc(eqPlace(e))}</b>${ks ? '<br>' + esc(ks.text) : ''}</div>` +
-    fSel('Кому / куди передати', 'to', holderOpts().filter(o => o[0] !== (e.holderType && e.holderType !== 'склад' ? e.holderType + ':' + e.holderId : 'склад')), '', { req: true, none: '— оберіть —' }) +
-    `<div class="grid2">${fInp('Дата передачі', 'date', today(), { type: 'date', req: true })}${fSel('Стан при передачі', 'condition', CONDITIONS, e.condition || 'справне')}</div>` +
-    fArea('Примітка (комплектність, пошкодження)', 'note', '', { rows: 2 });
+    `${fSel('Куди передати', 'place', places, d.place, { req: true, re: true, none: '— оберіть місце —' })}` +
+    `${fSel(use ? 'Кому (у користування)' : 'Кому (хто отримав)', 'toPerson', workerOpts(), d.toPerson, { req: use, none: use ? '— оберіть працівника —' : '— не вказано —', hint: use ? 'обладнання буде закріплено за працівником' : 'працівник, який прийняв обладнання' })}` +
+    `<div class="grid2">${fInp('Дата передачі', 'date', d.date || today(), { type: 'date', req: true })}${fSel('Стан при передачі', 'condition', CONDITIONS, d.condition || e.condition || 'справне')}</div>` +
+    fArea('Примітка (комплектність, пошкодження)', 'note', d.note, { rows: 2 });
   return page('Передача обладнання', form('move', id, body, { submit: 'Передати' }), '#/equipment/' + id);
 };
 FORMS.move = async (d, id) => {
-  if (!need(d, [['to', 'кому передати'], ['date', 'дата']])) return;
+  if (!need(d, [['place', 'куди передати'], ['date', 'дата']])) return;
   const e = get('Обладнання', id);
-  const [tt, tid] = d.to.split(':');
-  await save('Переміщення', { equipId: id, date: d.date, fromType: e.holderType || 'склад', fromId: e.holderId || '', toType: tt, toId: tid || '', condition: d.condition, note: d.note, authorId: ME.personId });
-  const upd = { ...e, holderType: tt, holderId: tid || '', condition: d.condition, handedAt: tt === 'працівник' ? d.date : '' };
+  let tt = 'склад', tid = '';
+  if (d.place === 'працівник') { if (!d.toPerson) return toast('Оберіть працівника, якому передається обладнання'); tt = 'працівник'; tid = d.toPerson; }
+  else if (String(d.place).startsWith('авто:')) { tt = 'авто'; tid = d.place.slice(5); }
+  if ((e.holderType || 'склад') === tt && (e.holderId || '') === tid) return toast('Обладнання вже знаходиться тут');
+  await save('Переміщення', { equipId: id, date: d.date, fromType: e.holderType || 'склад', fromId: e.holderId || '', toType: tt, toId: tid, receiverId: d.toPerson || '', condition: d.condition, note: d.note, authorId: ME.personId });
+  const upd = { ...e, holderType: tt, holderId: tid, condition: d.condition, handedAt: tt === 'працівник' ? d.date : '' };
   if (isLead() || MODE === 'demo') await save('Обладнання', upd); else await applyLocal('Обладнання', upd);
-  UI.dirty = false; savedMsg('Передачу зафіксовано'); go('#/equipment/' + id);
+  delete UI.draft['move:' + id]; UI.dirty = false; savedMsg('Передачу зафіксовано'); go('#/equipment/' + id);
 };
 
 // ═════════ КОМПЛЕКТАЦІЯ АВТО ═════════
