@@ -1,5 +1,5 @@
 /* Service worker: застосунок відкривається і працює без інтернету */
-const CACHE = 'vlnk-v1.8.61';
+const CACHE = 'vlnk-v1.8.62';
 const SHELL = [
   './', 'index.html', 'app.css', 'config.js', 'manifest.webmanifest',
   'js/core.js', 'js/ui.js', 'js/views-work.js', 'js/views-data.js', 'js/views-vac.js', 'js/views-ppe.js', 'js/views-brief.js', 'js/docs.js', 'js/demo.js',
