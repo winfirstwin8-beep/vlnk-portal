@@ -40,6 +40,7 @@ function render() {
   $('#title').textContent = HEAD.title;
   updateChip();
   const rf = $('form[data-form=report]'); if (rf && typeof updateGenPreview === 'function') updateGenPreview(rf);
+  if (typeof loadEqPhotos === 'function') loadEqPhotos();
   const back = $('#back');
   back.hidden = !HEAD.back;
   back.onclick = () => go(HEAD.back);
@@ -213,6 +214,19 @@ document.addEventListener('change', e => {
         render();
       });
     }).catch(err => toast('Помилка: ' + err.message));
+    return;
+  }
+  if (el.dataset.passup && el.files && el.files[0]) {
+    const f = el.files[0]; el.value = '';
+    queueRowFile('Обладнання', el.dataset.passup, f, { slot: 'pass' }).then(r => {
+      toast(r === 'saved' ? 'Паспорт збережено (демо)' : navigator.onLine ? 'Паспорт відправляється…' : 'Паспорт збережено на телефоні — відправиться, коли зʼявиться інтернет');
+      render();
+    }).catch(err => toast('Помилка: ' + err.message));
+    return;
+  }
+  if (el.dataset.eqphoto && el.files && el.files.length && !el.closest('form[data-form]')) {
+    const files = [...el.files]; el.value = '';
+    addEqPhotos(files, { equipId: el.dataset.eqphoto, moveId: el.dataset.move || '', stage: el.dataset.stage || 'огляд' }).then(n => { toast(`Додано фото: ${n}`); render(); }).catch(err => toast('Помилка: ' + err.message));
     return;
   }
   if (el.dataset.calibup && el.files && el.files[0]) {
@@ -457,6 +471,8 @@ function alerts() {
   for (const p of people) {
     if (truthy(p.isDriver) && p.licenseTo) { const v = validity(p.licenseTo); if (v.cls !== 'ok') out.push({ cls: v.cls, href: '#/person/' + p.id, text: `Посвідчення водія — ${esc(shortName(p.pib))}: ${v.text}` }); }
   }
+  // обладнання, передане мені, — підтвердити отримання
+  for (const m of all('Переміщення')) if (m.status === 'очікує' && m.receiverId && m.receiverId === ME.personId) { const e = get('Обладнання', m.equipId) || {}; out.push({ cls: 'warn', href: '#/eqact/' + m.id, text: `Підтвердіть отримання обладнання: ${esc(e.name || '')}${e.invNo ? ' інв. ' + esc(e.invNo) : ''} (від ${esc(shortName(personName(m.authorId)))}, ${uaDate(m.date)})` }); }
   if (lead && MODE === 'live' && DB.apiVer && cmpVer(DB.apiVer, NEED_API) < 0) out.push({ cls: 'bad', href: '#/settings', text: `Серверний код (Code.gs) застарів: версія ${esc(DB.apiVer === '0' ? 'невідома' : DB.apiVer)}, потрібна ${NEED_API}. Вставте новий Code.gs і зробіть «Нова версія» розгортання.` });
   if (lead) {
     const bo = briefs().filter(b => briefOverdue(b) && briefStat(b).left);

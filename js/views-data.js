@@ -858,7 +858,7 @@ ROUTES.equip = () => {
     const cal = calibState(e), ks = kitSum(e);
     return `<div class="item"><a class="item-link" href="#/equipment/${esc(e.id)}"><div class="row between"><b>${esc(e.name)}</b>${eqCond(e)}</div>
       <span class="small mute">інв. ${esc(e.invNo || '—')}${e.serial ? ' · зав. ' + esc(e.serial) : ''}${eqGroups(e).length ? ' · ' + esc(eqGroups(e).join(', ')) : ''}</span>
-      <span class="small">📍 ${esc(eqPlace(e))}</span>
+      <span class="small">📍 ${esc(eqPlace(e))}${eqPending(e.id) ? ' ' + badge('⏳ очікує підтвердження отримання', 'warn') : ''}</span>
       <span class="small">${ks ? badge('🧩 ' + esc(ks.text), ks.cls) + ' ' : ''}${badge('📏 ' + esc(cal.text), cal.cls)}${e.fileId || e.file ? ' ' + badge('📄 свідоцтво') : ''}</span></a>
       <div class="row gap">${canReport() ? `<a class="btn small" href="#/moveform/${esc(e.id)}">Передати</a>` : ''}${isLead() ? `<a class="btn small ghost" href="#/equipform/${esc(e.id)}">Змінити</a>` : ''}</div></div>`;
   }).join('') + (list.length ? more(list.length) : empty('Обладнання не знайдено'));
@@ -895,9 +895,11 @@ ROUTES.equipment = id => {
     ['Дійсне до', e.calibTo ? uaDate(e.calibTo) + (validity(e.calibTo).cls !== 'ok' ? ` <span class="small ${validity(e.calibTo).cls}">${esc(validity(e.calibTo).text)}</span>` : '') : '—'],
     ['№ свідоцтва про калібрування', esc(e.calibCert || '—')], ['Ким виконано', esc(e.calibOrg || '—')]
   ]) + calibFileBlock(e));
+  h += card('Паспорт обладнання', passFileBlock(e));
+  h += eqPhotoCard(e);
   h += card('Комплект' + (ks ? ' · ' + ks.units + ' од.' : ''), kit.length ? `<div class="tblwrap"><table class="tbl kittbl"><thead><tr><th>№</th><th>Найменування</th><th>К-сть</th><th>Зав. №</th><th>Стан</th></tr></thead><tbody>${kit.map((k, i) => `<tr><td>${i + 1}</td><td>${esc(k.name)}</td><td>${num(k.qty) || 1}</td><td>${esc(k.serial || '')}</td><td>${badge(esc(k.condition || 'справне'), k.condition === 'несправне' || k.condition === 'відсутнє' ? 'bad' : 'ok')}</td></tr>`).join('')}</tbody></table></div><p class="small">${badge(esc(ks.text), ks.cls)}</p>` : empty('Склад комплекту не внесено') + (isLead() ? `<a class="small" href="#/equipform/${esc(id)}">Додати склад комплекту ›</a>` : ''));
   const mv = all('Переміщення').filter(m => m.equipId === id).sort((a, b) => String(b.date).localeCompare(String(a.date)));
-  h += card('Історія переміщень · ' + mv.length, mv.length ? mv.map(m => `<div class="item"><div class="row between"><span class="small">${esc(holderName(m.fromType, m.fromId))} → <b>${esc(holderName(m.toType, m.toId))}</b></span><span class="small">${uaDate(m.date)}</span></div><span class="small mute">${m.receiverId && m.toType !== 'працівник' ? 'Отримав: ' + esc(shortName(personName(m.receiverId))) + ' · ' : ''}Стан: ${esc(m.condition || '—')}${m.note ? ' · ' + esc(m.note) : ''}${m.authorId ? ' · передав ' + esc(shortName(personName(m.authorId))) : ''}</span></div>`).join('') : empty('Переміщень не було'));
+  h += card('Історія переміщень · ' + mv.length, mv.length ? mv.map(m => `<a class="item" href="#/eqact/${esc(m.id)}"><div class="row between"><span class="small">${esc(holderName(m.fromType, m.fromId))} → <b>${esc(holderName(m.toType, m.toId))}</b></span><span class="small">${uaDate(m.date)}</span></div><span class="small mute">${mvReceiver(m) ? 'Отримав: ' + esc(mvReceiver(m)) + ' · ' : ''}Стан: ${esc(m.recvAt && m.recvCondition ? m.recvCondition : m.condition || '—')}${m.note ? ' · ' + esc(m.note) : ''}${m.authorId ? ' · передав ' + esc(shortName(personName(m.authorId))) : ''}</span><span class="small">${mvStatusBadge(m)}${m.actNo ? ' · акт № ' + esc(m.actNo) : ''}</span></a>`).join('') : empty('Переміщень не було'));
   return page('Обладнання', h, '#/equip');
 };
 // ── свідоцтво про калібрування: файл, завантаження, надсилання
@@ -906,7 +908,7 @@ function calibFileBlock(e) {
   const has = !!(e.file || e.fileId) || pend;
   const off = String(e.file || '').startsWith('data:') || DB.cachedFiles.has(e.fileId) || DB.cachedFiles.has('local-' + e.id);
   return `${e.fileName ? `<p class="small ordername">📄 ${esc(e.fileName)}${off ? ' <span class="ok">✓ офлайн</span>' : ''}</p>` : '<p class="small mute">Скан свідоцтва не додано.</p>'}
-    <div class="row gap order">${has && !pend ? `<button type="button" class="btn small primary" data-act="calibdl" data-id="${esc(e.id)}">⬇ Завантажити</button><a class="btn small ghost" href="#/calibmail/${esc(e.id)}">✉ Надіслати</a>${navigator.canShare ? `<button type="button" class="btn small ghost" data-act="calibshare" data-id="${esc(e.id)}">↗ Поділитися</button>` : ''}` : ''}
+    <div class="row gap order">${has && !pend ? `<button type="button" class="btn small primary" data-act="calibdl" data-id="${esc(e.id)}">⬇ Завантажити</button><a class="btn small ghost" href="#/eqdocmail/calib/${esc(e.id)}">✉ Надіслати</a>${navigator.canShare ? `<button type="button" class="btn small ghost" data-act="calibshare" data-id="${esc(e.id)}">↗ Поділитися</button>` : ''}` : ''}
     ${pend ? badge('⏳ відправляється', 'warn') : ''}
     ${isLead() ? `<label class="btn small ${has ? 'ghost' : 'primary'} upl">${has ? 'Замінити файл' : '⬆ Додати свідоцтво (PDF / фото)'}<input type="file" accept="application/pdf,image/*" data-calibup="${esc(e.id)}"></label>` : ''}</div>
     <p class="small mute">Файл зберігається на Google Диску в папці «Свідоцтва калібрування / ${esc(e.name || '')}${e.invNo ? ' інв. ' + esc(e.invNo) : ''}».</p>`;
@@ -928,35 +930,6 @@ ACTS.calibshare = async d => {
     if (!navigator.canShare || !navigator.canShare({ files: [file] })) return toast('Цей пристрій не підтримує надсилання файлів — скористайтеся «Завантажити»');
     await navigator.share({ files: [file], title: f.name });
   } catch (e) { if (e.name !== 'AbortError') toast(e.message); }
-};
-ROUTES.calibmail = id => {
-  if (isVisitor()) return denied();
-  const e = get('Обладнання', id); if (!e) return notFound();
-  const me = get('Персонал', ME.personId) || {};
-  let h = card('Свідоцтво про калібрування', kv([
-    ['Обладнання', esc(e.name) + (e.invNo ? ' · інв. ' + esc(e.invNo) : '')], ['№ свідоцтва', esc(e.calibCert || '—')],
-    ['Дійсне до', e.calibTo ? uaDate(e.calibTo) : '—'], ['Файл', esc(e.fileName || '—')]
-  ]));
-  h += card('Надіслати', form('calibmail', id,
-    emailField('Email, на який надіслати', (UI.draft['calibmail:' + id] || {}).email || me.email || ME.email || '') +
-    '<p class="small mute">Свідоцтво буде надіслано вкладенням.</p>', { submit: '✉ Надіслати' }));
-  return page('Надіслати свідоцтво', h, '#/equipment/' + id);
-};
-FORMS.calibmail = async (d, id) => {
-  const e = get('Обладнання', id); if (!e) return toast('Обладнання не знайдено');
-  const email = normEmails(d.email);
-  if (!email) return toast('Вкажіть коректний email (кілька адрес — через кому)');
-  if (MODE === 'demo') {
-    UI.dirty = false;
-    await ask(`ДЕМО: у робочій версії на ${email} піде лист «Свідоцтво про калібрування${e.calibCert ? ' № ' + e.calibCert : ''} — ${e.name}» з файлом 📎 ${e.fileName || 'Свідоцтво.pdf'}.`, 'Зрозуміло', 'Закрити');
-    return go('#/equipment/' + id);
-  }
-  if (!navigator.onLine) return toast('Потрібен інтернет');
-  if (!e.fileId) return toast('Свідоцтво ще не відправлено на сервер — спробуйте за хвилину');
-  toast('Надсилаю…');
-  const r = await api({ action: 'mailcalib', id, email }, 120000).catch(x => ({ ok: false, error: x.message }));
-  if (!r.ok) return toast('Не надіслано: ' + (r.error === 'Невідома дія' ? 'оновіть серверну частину порталу' : r.error));
-  UI.dirty = false; savedMsg('Свідоцтво надіслано на ' + r.to); go('#/equipment/' + id);
 };
 /** Рядки комплекту з полів форми k_<i>_<поле>; ключі видаляються з d. */
 function kitFromForm(d) {
@@ -1013,32 +986,213 @@ FORMS.equip = async (d, id) => {
     await save('Переміщення', { equipId: row.id, date: handedAt || today(), fromType: src.holderType || 'склад', fromId: src.holderId || '', toType: ht, toId: hid, condition: row.condition, note: 'змінено в картці обладнання', authorId: ME.personId });
   delete UI.draft['equip:' + id]; UI.dirty = false; savedMsg('Збережено'); go('#/equipment/' + row.id);
 };
+// ── передача обладнання з актом приймання-передачі
+const mvReceiver = m => m.receiverId ? shortName(personName(m.receiverId)) : (m.receiverName || '');
+const eqPending = eid => all('Переміщення').some(m => m.equipId === eid && m.status === 'очікує');
+const mvStatusBadge = m => m.status === 'очікує' ? badge('⏳ очікує підтвердження', 'warn') : m.recvAt ? badge('✓ отримання підтверджено', 'ok') : '';
+/** Наступний № акта в році: «7/2026». */
+function nextActNo(date) {
+  const y = String(date || today()).slice(0, 4);
+  const ns = all('Переміщення').map(m => String(m.actNo || '')).filter(x => x.endsWith('/' + y)).map(x => parseInt(x, 10)).filter(n => n > 0);
+  return (ns.length ? Math.max(...ns) + 1 : 1) + '/' + y;
+}
 ROUTES.moveform = id => {
   if (!canReport()) return denied();
   const e = get('Обладнання', id);
   if (!e) return notFound();
-  const ks = kitSum(e);
-  const d = UI.draft['move:' + id] || { place: '', toPerson: '', date: today(), condition: e.condition || 'справне', note: '' };
+  const ks = kitSum(e), kit = eqKit(e);
+  const d = UI.draft['move:' + id] || { place: '', toPerson: '', otherName: '', date: today(), condition: e.condition || 'справне', note: '' };
   const places = [['склад', 'Склад'], ...all('Авто').map(c => ['авто:' + c.id, 'Авто: ' + carName(c.id)]), ['працівник', 'У користування працівнику']];
   const use = d.place === 'працівник';
+  const whoOpts = [...workerOpts(), ...(use ? [] : [['__other', 'Інший (вписати ПІБ)']])];
   const body = `<div class="note">${esc(e.name)} · інв. ${esc(e.invNo || '—')}<br>Зараз: <b>${esc(eqPlace(e))}</b>${ks ? '<br>' + esc(ks.text) : ''}</div>` +
     `${fSel('Куди передати', 'place', places, d.place, { req: true, re: true, none: '— оберіть місце —' })}` +
-    `${fSel(use ? 'Кому (у користування)' : 'Кому (хто отримав)', 'toPerson', workerOpts(), d.toPerson, { req: use, none: use ? '— оберіть працівника —' : '— не вказано —', hint: use ? 'обладнання буде закріплено за працівником' : 'працівник, який прийняв обладнання' })}` +
+    `${fSel(use ? 'Кому (у користування)' : 'Кому (хто отримав)', 'toPerson', whoOpts, d.toPerson, { req: use, re: true, none: use ? '— оберіть працівника —' : '— не вказано —', hint: use ? 'обладнання буде закріплено за працівником; він підтвердить отримання в порталі' : 'працівник порталу підтвердить отримання сам; для «Іншого» отримання фіксуєте ви' })}` +
+    (d.toPerson === '__other' && !use ? fInp('ПІБ отримувача', 'otherName', d.otherName, { req: true, ph: 'Прізвище Імʼя По батькові, посада' }) : '') +
     `<div class="grid2">${fInp('Дата передачі', 'date', d.date || today(), { type: 'date', req: true })}${fSel('Стан при передачі', 'condition', CONDITIONS, d.condition || e.condition || 'справне')}</div>` +
-    fArea('Примітка (комплектність, пошкодження)', 'note', d.note, { rows: 2 });
-  return page('Передача обладнання', form('move', id, body, { submit: 'Передати' }), '#/equipment/' + id);
+    (kit.length ? `<fieldset class="f"><legend>Комплект при передачі · ${kit.length} поз.</legend>${kit.map((k, i) => `<div class="kitchk"><span>${i + 1}. ${esc(k.name)}${num(k.qty) > 1 ? ' × ' + num(k.qty) : ''}${k.serial ? ' <small class="mute">зав. ' + esc(k.serial) + '</small>' : ''}</span>${fSel('', 'sk_' + i, KIT_COND, d['sk_' + i] || k.condition || 'справне')}</div>`).join('')}</fieldset>` : '') +
+    fArea('Примітка (комплектність, пошкодження)', 'note', d.note, { rows: 2 }) +
+    `<label class="f"><span>📷 Фотофіксація стану при передачі</span><input type="file" name="photos" accept="image/*" capture="environment" multiple><small>Можна зробити кілька фото камерою телефона; фото стискаються автоматично й додаються до акта</small></label>`;
+  return page('Передача обладнання', form('move', id, body, { submit: 'Передати й сформувати акт' }), '#/equipment/' + id);
 };
-FORMS.move = async (d, id) => {
+FORMS.move = async (d, id, f) => {
   if (!need(d, [['place', 'куди передати'], ['date', 'дата']])) return;
   const e = get('Обладнання', id);
   let tt = 'склад', tid = '';
-  if (d.place === 'працівник') { if (!d.toPerson) return toast('Оберіть працівника, якому передається обладнання'); tt = 'працівник'; tid = d.toPerson; }
+  if (d.place === 'працівник') { if (!d.toPerson || d.toPerson === '__other') return toast('Оберіть працівника, якому передається обладнання'); tt = 'працівник'; tid = d.toPerson; }
   else if (String(d.place).startsWith('авто:')) { tt = 'авто'; tid = d.place.slice(5); }
   if ((e.holderType || 'склад') === tt && (e.holderId || '') === tid) return toast('Обладнання вже знаходиться тут');
-  await save('Переміщення', { equipId: id, date: d.date, fromType: e.holderType || 'склад', fromId: e.holderId || '', toType: tt, toId: tid, receiverId: d.toPerson || '', condition: d.condition, note: d.note, authorId: ME.personId });
-  const upd = { ...e, holderType: tt, holderId: tid, condition: d.condition, handedAt: tt === 'працівник' ? d.date : '' };
+  const other = d.toPerson === '__other';
+  if (other && !String(d.otherName || '').trim()) return toast('Вкажіть ПІБ отримувача');
+  const receiverId = other ? '' : (d.toPerson || '');
+  const sendKit = eqKit(e).map((k, i) => ({ name: k.name, qty: num(k.qty) || 1, serial: k.serial || '', condition: d['sk_' + i] || k.condition || 'справне' }));
+  // отримувач — працівник порталу (не я) підтверджує сам; інакше отримання фіксує той, хто передає
+  const selfConfirm = !receiverId || receiverId === ME.personId;
+  const now = Date.now();
+  const mv = { equipId: id, date: d.date, fromType: e.holderType || 'склад', fromId: e.holderId || '', toType: tt, toId: tid, receiverId, receiverName: other ? d.otherName.trim() : '',
+    condition: d.condition, note: d.note, authorId: ME.personId, actNo: nextActNo(d.date), sendKit: JSON.stringify(sendKit), status: selfConfirm ? 'підтверджено' : 'очікує',
+    ...(selfConfirm ? { recvAt: now, recvBy: meShort() + (receiverId ? '' : ' (за отримувача)'), recvCondition: d.condition, recvKit: JSON.stringify(sendKit), recvNote: other ? 'Отримувач не є користувачем порталу' : '' } : {}) };
+  const row = await save('Переміщення', mv);
+  const upd = { ...e, holderType: tt, holderId: tid, condition: d.condition, handedAt: tt === 'працівник' ? d.date : '', ...(selfConfirm && sendKit.length ? { kit: JSON.stringify(sendKit) } : {}) };
   if (isLead() || MODE === 'demo') await save('Обладнання', upd); else await applyLocal('Обладнання', upd);
-  delete UI.draft['move:' + id]; UI.dirty = false; savedMsg('Передачу зафіксовано'); go('#/equipment/' + id);
+  const files = [...((f && f.querySelector('input[name=photos]') || {}).files || [])];
+  if (files.length) await addEqPhotos(files, { equipId: id, moveId: row.id, stage: 'передача' });
+  delete UI.draft['move:' + id]; UI.dirty = false;
+  savedMsg(selfConfirm ? 'Передачу зафіксовано, акт № ' + row.actNo : 'Передачу зафіксовано — очікує підтвердження ' + shortName(personName(receiverId)));
+  if (MODE === 'live' && navigator.onLine) setTimeout(() => genActNow(row.id, true), 4000);
+  go('#/eqact/' + row.id);
+};
+ONCHANGE.move = (d, field) => { if (field === 'place' && d.place === 'працівник' && d.toPerson === '__other') d.toPerson = ''; };
+/** Сформувати PDF акта на сервері (після синхронізації рядка). */
+async function genActNow(moveId, quiet) {
+  if (MODE !== 'live') return;
+  try {
+    if (DB.pending) await sync();
+    const r = await api({ action: 'genact', moveId }, 120000);
+    if (!r.ok) { if (!quiet) toast('Акт не сформовано: ' + (r.error === 'Невідома дія' ? 'оновіть серверну частину порталу' : r.error === 'NOROW' ? 'передача ще не дійшла на сервер, спробуйте за хвилину' : r.error)); return; }
+    const m = get('Переміщення', moveId); if (m) await applyLocal('Переміщення', { ...m, ...r.row });
+    if (!quiet) toast('Акт сформовано');
+    onData(true);
+  } catch (e) { if (!quiet) toast('Акт не сформовано: ' + e.message); }
+}
+/** Акт приймання-передачі: перегляд, підтвердження отримання, PDF, надсилання. */
+ROUTES.eqact = mid => {
+  if (isVisitor()) return denied();
+  const m = get('Переміщення', mid); if (!m) return notFound();
+  const e = get('Обладнання', m.equipId) || {};
+  const pj = v => arr(v);
+  const sendKit = pj(m.sendKit), recvKit = pj(m.recvKit);
+  const giver = get('Персонал', m.authorId) || {}, rcv = get('Персонал', m.receiverId) || {};
+  const rcvName = rcv.pib || m.receiverName || '';
+  const photos = all('ФотоОбладнання').filter(p => p.moveId === mid);
+  const kitN = Math.max(sendKit.length, recvKit.length);
+  const rowsK = Array.from({ length: kitN }, (_, i) => { const k = sendKit[i] || recvKit[i] || {}; return `<tr class="kit"><td>${i + 1}. ${esc(k.name)}</td><td>${esc(k.serial || '')}</td><td>${num(k.qty) || 1}</td><td>${esc((sendKit[i] || {}).condition || '')}</td><td>${m.recvAt ? esc((recvKit[i] || {}).condition || '') : ''}</td></tr>`; }).join('');
+  let h = `<div class="card actdoc"><h2>АКТ № ${esc(m.actNo || '—')}<br><small>приймання-передачі обладнання</small></h2>
+    ${kv([['Дата передачі', uaDate(m.date)], ['Передав', esc(giver.pib || '—') + (giver.posada ? `<br><span class="small mute">${esc(giver.posada)}</span>` : '')], ['Звідки', esc(holderName(m.fromType, m.fromId))],
+      ['Отримав', esc(rcvName || '—') + (rcv.posada ? `<br><span class="small mute">${esc(rcv.posada)}</span>` : '')], ['Куди', esc(holderName(m.toType, m.toId))], ['Статус', mvStatusBadge(m) || '—']])}
+    <div class="tblwrap"><table class="tbl kittbl"><thead><tr><th>Найменування</th><th>Зав. №</th><th>К-сть</th><th>Стан при передачі</th><th>Стан при отриманні</th></tr></thead><tbody>
+      <tr><td><b>${esc(e.name || '')}</b>${e.invNo ? `<br><small>інв. ${esc(e.invNo)}</small>` : ''}</td><td>${esc(e.serial || '')}</td><td>1</td><td>${esc(m.condition || '')}</td><td>${m.recvAt ? esc(m.recvCondition || '') : ''}</td></tr>${rowsK}</tbody></table></div>
+    ${m.note ? `<p class="small">Примітка передавального: ${esc(m.note)}</p>` : ''}${m.recvAt && m.recvNote ? `<p class="small">Примітка отримувача: ${esc(m.recvNote)}</p>` : ''}
+    <p class="small"><i>${m.recvAt ? `Отримання підтверджено ${esc(fmtDT(m.recvAt))} — ${esc(m.recvBy || rcvName)}` : 'Отримання ще не підтверджено.'}</i></p>
+    ${photos.length ? `<p class="small"><b>Фотофіксація · ${photos.length}</b></p>${photoGrid(photos)}` : ''}
+    <div class="row gap">${m.actFileId ? `<button type="button" class="btn small primary" data-act="actdl" data-id="${esc(mid)}">⬇ Акт PDF</button><a class="btn small ghost" href="#/eqdocmail/act/${esc(mid)}">✉ Надіслати акт</a>` : ''}<button type="button" class="btn small ghost" data-act="actgen" data-id="${esc(mid)}">📄 ${m.actFileId ? 'Оновити PDF' : 'Сформувати акт (PDF)'}</button><a class="btn small ghost" href="#/equipment/${esc(m.equipId)}">Картка обладнання ›</a></div></div>`;
+  // підтвердження отримання: отримувач або керівник
+  if (m.status === 'очікує' && (m.receiverId === ME.personId || isLead())) {
+    const d = UI.draft['eqrecv:' + mid] || { recvCondition: m.condition || 'справне', recvNote: '' };
+    const other = m.receiverId !== ME.personId;
+    h += card(other ? 'Підтвердити отримання за отримувача' : 'Підтвердіть отримання', form('eqrecv', mid,
+      (other ? `<p class="small warn">Ви підтверджуєте за ${esc(rcvName)}. Краще, щоб отримувач підтвердив сам у своєму порталі.</p>` : '<p class="small">Перевірте обладнання й комплект та вкажіть фактичний стан при отриманні.</p>') +
+      fSel('Стан обладнання при отриманні', 'recvCondition', CONDITIONS, d.recvCondition, { req: true }) +
+      (sendKit.length ? `<fieldset class="f"><legend>Комплект при отриманні</legend>${sendKit.map((k, i) => `<div class="kitchk"><span>${i + 1}. ${esc(k.name)}${num(k.qty) > 1 ? ' × ' + num(k.qty) : ''}${k.serial ? ' <small class="mute">зав. ' + esc(k.serial) + '</small>' : ''}</span>${fSel('', 'rk_' + i, KIT_COND, d['rk_' + i] || k.condition || 'справне')}</div>`).join('')}</fieldset>` : '') +
+      fArea('Зауваження (пошкодження, некомплект)', 'recvNote', d.recvNote, { rows: 2 }) +
+      `<label class="f"><span>📷 Фото стану при отриманні</span><input type="file" name="photos" accept="image/*" capture="environment" multiple></label>`,
+      { submit: '✅ Підтверджую отримання' }));
+  }
+  return page('Акт № ' + (m.actNo || ''), h, '#/equipment/' + m.equipId);
+};
+FORMS.eqrecv = async (d, mid, f) => {
+  const m = get('Переміщення', mid); if (!m) return toast('Передачу не знайдено');
+  const e = get('Обладнання', m.equipId) || {};
+  const recvKit = arr(m.sendKit).map((k, i) => ({ ...k, condition: d['rk_' + i] || k.condition || 'справне' }));
+  const by = meShort() + (m.receiverId && m.receiverId !== ME.personId ? ' (за отримувача)' : '');
+  const upd = { ...m, status: 'підтверджено', recvAt: Date.now(), recvBy: by, recvCondition: d.recvCondition, recvKit: JSON.stringify(recvKit), recvNote: d.recvNote || '', confirmOnly: true };
+  await save('Переміщення', upd);
+  const eu = { ...e, condition: d.recvCondition, ...(recvKit.length ? { kit: JSON.stringify(recvKit) } : {}) };
+  if (isLead() || MODE === 'demo') await save('Обладнання', eu); else await applyLocal('Обладнання', eu);
+  const files = [...((f && f.querySelector('input[name=photos]') || {}).files || [])];
+  if (files.length) await addEqPhotos(files, { equipId: m.equipId, moveId: mid, stage: 'отримання' });
+  delete UI.draft['eqrecv:' + mid]; UI.dirty = false;
+  savedMsg('Отримання підтверджено');
+  if (MODE === 'live' && navigator.onLine) setTimeout(() => genActNow(mid, true), 4000);
+  render();
+};
+ACTS.actgen = async d => {
+  if (MODE === 'demo') return ask('ДЕМО: у робочій версії сервер сформує акт у PDF (з комплектом, станом і фото) і збереже його на Google Диску в папці «Акти передачі обладнання / рік-місяць». Тут показано його зміст.', 'Зрозуміло', 'Закрити');
+  if (!navigator.onLine) return toast('Потрібен інтернет');
+  toast('Формую акт…'); await genActNow(d.id, false);
+};
+ACTS.actdl = async d => {
+  try { toast('Готую файл…'); const f = await getActFile(get('Переміщення', d.id)); const r = await saveFile(f.name || 'Акт.pdf', fileToBlob(f)); toast(r === 'declined' ? 'Збереження скасовано' : 'Акт завантажено'); } catch (e) { toast(e.message); }
+};
+// ── фотофіксація стану обладнання
+async function addEqPhotos(files, o) {
+  let n = 0;
+  for (const file of files) {
+    const row = await save('ФотоОбладнання', { equipId: o.equipId, moveId: o.moveId || '', stage: o.stage || 'огляд', date: today(), note: o.note || '', authorId: ME.personId || '' });
+    await queueRowFile('ФотоОбладнання', row.id, file); n++;
+  }
+  return n;
+}
+const photoGrid = list => `<div class="phgrid">${list.map(p => `<figure><img class="eqph" data-ph="${esc(p.id)}" alt="фото" data-act="phview" data-id="${esc(p.id)}"><figcaption>${esc(p.stage || 'огляд')} · ${uaDate(p.date)}${p.authorId ? ' · ' + esc(shortName(personName(p.authorId))) : ''}</figcaption></figure>`).join('')}</div>`;
+function eqPhotoCard(e) {
+  const list = all('ФотоОбладнання').filter(p => p.equipId === e.id).sort((a, b) => String(b.date).localeCompare(String(a.date)) || (b.updatedAt || 0) - (a.updatedAt || 0));
+  return card('Фотофіксація стану' + (list.length ? ' · ' + list.length : ''), (list.length ? photoGrid(list.slice(0, UI.phlimit || 12)) + (list.length > (UI.phlimit || 12) ? `<button class="btn ghost small" data-act="phmore">Показати ще</button>` : '') : '<p class="small mute">Фото ще немає.</p>') +
+    (canReport() ? `<label class="btn small primary upl">📷 Додати фото стану<input type="file" accept="image/*" capture="environment" multiple data-eqphoto="${esc(e.id)}" data-stage="огляд"></label>` : '') +
+    `<p class="small mute">Фото зберігаються на Google Диску в папці «Фото обладнання / ${esc(e.name || '')}${e.invNo ? ' інв. ' + esc(e.invNo) : ''}». Фото з передач — також в акті.</p>`);
+}
+ACTS.phmore = () => { UI.phlimit = (UI.phlimit || 12) + 12; render(); };
+const PHCACHE = new Map();
+function loadEqPhotos() {
+  document.querySelectorAll('img.eqph:not([src])').forEach(async img => {
+    const id = img.dataset.ph; if (PHCACHE.has(id)) { img.src = PHCACHE.get(id); return; }
+    const p = get('ФотоОбладнання', id); if (!p) return;
+    try { const f = await getRowFile('ФотоОбладнання', p); const url = 'data:' + f.mime + ';base64,' + f.data; PHCACHE.set(id, url); img.src = url; }
+    catch (e) { img.alt = DB.upTasks.has(id) ? '⏳ відправляється' : 'фото недоступне'; img.classList.add('phmiss'); }
+  });
+}
+ACTS.phview = d => {
+  const url = PHCACHE.get(d.id); if (!url) return;
+  const p = get('ФотоОбладнання', d.id) || {};
+  const ov = document.createElement('div'); ov.className = 'phov';
+  ov.innerHTML = `<img src="${url}" alt="фото"><p>${esc(p.stage || '')} · ${uaDate(p.date)}${p.note ? ' · ' + esc(p.note) : ''}</p><button type="button" class="btn">Закрити</button>`;
+  ov.onclick = () => ov.remove(); document.body.appendChild(ov);
+};
+// ── паспорт обладнання
+function passFileBlock(e) {
+  const pend = DB.upTasks.has('pass:' + e.id);
+  const has = !!(e.passFile || e.passFileId) || pend;
+  const off = String(e.passFile || '').startsWith('data:') || DB.cachedFiles.has(e.passFileId) || DB.cachedFiles.has('local-pass-' + e.id);
+  return `${e.passFileName ? `<p class="small ordername">📘 ${esc(e.passFileName)}${off ? ' <span class="ok">✓ офлайн</span>' : ''}</p>` : '<p class="small mute">Паспорт не додано.</p>'}
+    <div class="row gap order">${has && !pend ? `<button type="button" class="btn small primary" data-act="passdl" data-id="${esc(e.id)}">⬇ Завантажити</button><a class="btn small ghost" href="#/eqdocmail/pass/${esc(e.id)}">✉ Надіслати</a>${navigator.canShare ? `<button type="button" class="btn small ghost" data-act="passshare" data-id="${esc(e.id)}">↗ Поділитися</button>` : ''}` : ''}
+    ${pend ? badge('⏳ відправляється', 'warn') : ''}
+    ${isLead() ? `<label class="btn small ${has ? 'ghost' : 'primary'} upl">${has ? 'Замінити файл' : '⬆ Додати паспорт (PDF / фото)'}<input type="file" accept="application/pdf,image/*" data-passup="${esc(e.id)}"></label>` : ''}</div>
+    <p class="small mute">Зберігається на Google Диску в папці «Паспорти обладнання / ${esc(e.name || '')}${e.invNo ? ' інв. ' + esc(e.invNo) : ''}».</p>`;
+}
+ACTS.passdl = async d => {
+  try { toast('Готую файл…'); const f = await getPassFile(get('Обладнання', d.id)); const r = await saveFile(f.name || 'Паспорт.pdf', fileToBlob(f)); toast(r === 'declined' ? 'Збереження скасовано' : 'Паспорт завантажено'); render(); } catch (e) { toast(e.message); }
+};
+ACTS.passshare = async d => {
+  try {
+    const f = await getPassFile(get('Обладнання', d.id));
+    const file = new File([fileToBlob(f)], f.name || 'Паспорт', { type: f.mime });
+    if (!navigator.canShare || !navigator.canShare({ files: [file] })) return toast('Цей пристрій не підтримує надсилання файлів — скористайтеся «Завантажити»');
+    await navigator.share({ files: [file], title: f.name });
+  } catch (e) { if (e.name !== 'AbortError') toast(e.message); }
+};
+// ── надсилання документів обладнання: свідоцтво (calib), паспорт (pass), акт (act)
+const EQDOC = { calib: 'Свідоцтво про калібрування', pass: 'Паспорт обладнання', act: 'Акт приймання-передачі' };
+ROUTES.eqdocmail = (kind, id) => {
+  if (isVisitor() || !EQDOC[kind]) return denied();
+  const m = kind === 'act' ? get('Переміщення', id) : null;
+  const e = get('Обладнання', m ? m.equipId : id); if (!e) return notFound();
+  const fname = kind === 'act' ? (m.actName || '') : kind === 'pass' ? e.passFileName : e.fileName;
+  const me = get('Персонал', ME.personId) || {};
+  let h = card(EQDOC[kind], kv([['Обладнання', esc(e.name) + (e.invNo ? ' · інв. ' + esc(e.invNo) : '')], ...(kind === 'calib' ? [['№ свідоцтва', esc(e.calibCert || '—')], ['Дійсне до', e.calibTo ? uaDate(e.calibTo) : '—']] : []), ...(m ? [['Акт', '№ ' + esc(m.actNo || '') + ' від ' + uaDate(m.date)]] : []), ['Файл', esc(fname || '—')]]));
+  h += card('Надіслати', form('eqdocmail', kind + '|' + id, emailField('Email, на який надіслати', (UI.draft['eqdocmail:' + kind + '|' + id] || {}).email || me.email || ME.email || '') + '<p class="small mute">Файл буде надіслано вкладенням.</p>', { submit: '✉ Надіслати' }));
+  return page('Надіслати документ', h, m ? '#/eqact/' + id : '#/equipment/' + id);
+};
+ROUTES.calibmail = id => ROUTES.eqdocmail('calib', id);
+FORMS.eqdocmail = async (d, key) => {
+  const [kind, id] = key.split('|');
+  const email = normEmails(d.email);
+  if (!email) return toast('Вкажіть коректний email (кілька адрес — через кому)');
+  const back = kind === 'act' ? '#/eqact/' + id : '#/equipment/' + id;
+  if (MODE === 'demo') { UI.dirty = false; await ask(`ДЕМО: у робочій версії «${EQDOC[kind]}» буде надіслано на ${email} вкладенням.`, 'Зрозуміло', 'Закрити'); return go(back); }
+  if (!navigator.onLine) return toast('Потрібен інтернет');
+  toast('Надсилаю…');
+  const r = await api({ action: 'maileqdoc', kind, id, email }, 120000).catch(x => ({ ok: false, error: x.message }));
+  if (!r.ok) return toast('Не надіслано: ' + (r.error === 'Невідома дія' ? 'оновіть серверну частину порталу' : r.error));
+  UI.dirty = false; savedMsg(EQDOC[kind] + ' надіслано на ' + r.to); go(back);
 };
 
 // ═════════ КОМПЛЕКТАЦІЯ АВТО ═════════

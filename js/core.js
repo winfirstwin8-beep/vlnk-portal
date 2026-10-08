@@ -1,11 +1,12 @@
 /* Портал ВЛНК — ядро: утиліти, локальна база (IndexedDB), синхронізація, розрахунки */
 'use strict';
 
-const VER = '1.8.61';
+const VER = '1.8.62';
 /** Мінімальна версія серверного коду (Code.gs), з якою працює цей застосунок. */
 const NEED_API = '1.8.18';
 /** Що нового — показується один раз після оновлення (коротко, для працівників). */
 const CHANGES = {
+  '1.8.62': ['Обладнання: паспорт — завантажити, скачати, надіслати; фотофіксація стану (камера телефона)', 'Передача обладнання: акт приймання-передачі з комплектом і фото, отримувач підтверджує отримання та стан; у «Кому» — «Інший»'],
   '1.8.61': ['Моніторинг: «Доба», «Місяць» і «Рік»; майбутній період вибрати не можна'],
   '1.8.59': ['Завдання: дати підсвічуються — триває (на сьогодні) зеленим, майбутні жовтим, завершені сірим'],
   '1.8.58': ['Моніторинг → «Стан бригад»: склад кожної бригади (Прізвище І.Б.), хто у відпустці — з позначкою 🌴'],
@@ -391,13 +392,14 @@ async function queueOrder(taskId, file) {
 }
 // ───────── протоколи НК: файли на картці обʼєкта ─────────
 /** Файл до рядка (протокол НК, текст інструкції/НД): у демо — прямо в рядку, у робочому режимі — у чергу на відправку на Диск. */
-const FILE_KIND = { 'Протоколи': 'proto', 'Документи': 'docfile', 'Сертифікати': 'certfile', 'Обладнання': 'calibfile' };
-const KIND_TBL = { proto: 'Протоколи', docfile: 'Документи', certfile: 'Сертифікати', calibfile: 'Обладнання' };
-const KIND_ACT = { proto: 'uploadproto', docfile: 'uploaddoc', certfile: 'uploadcert', calibfile: 'uploadcalib' };
+const FILE_KIND = { 'Протоколи': 'proto', 'Документи': 'docfile', 'Сертифікати': 'certfile', 'Обладнання': 'calibfile', 'ФотоОбладнання': 'eqphoto' };
+const KIND_TBL = { proto: 'Протоколи', docfile: 'Документи', certfile: 'Сертифікати', calibfile: 'Обладнання', passfile: 'Обладнання', eqphoto: 'ФотоОбладнання' };
+const KIND_ACT = { proto: 'uploadproto', docfile: 'uploaddoc', certfile: 'uploadcert', calibfile: 'uploadcalib', passfile: 'uploadpass', eqphoto: 'uploadeqphoto' };
 async function queueRowFile(table, id, file, extra = {}) {
   const f = await readFileForUpload(file);
   if (MODE === 'demo') {
     const p = get(table, id);
+    if (extra.slot === 'pass') { await save(table, { ...p, passFile: 'data:' + f.mime + ';base64,' + f.data, passFileName: f.name }); return 'saved'; }
     const upd = { file: 'data:' + f.mime + ';base64,' + f.data, fileName: f.name };
     // оновлена версія протоколу: попередня зберігається в versions, нова підписується
     if (table === 'Протоколи' && p.file) {
@@ -412,10 +414,10 @@ async function queueRowFile(table, id, file, extra = {}) {
     return 'saved';
   }
   // одразу кладемо копію в кеш телефону — автор може відкрити файл ще до відправки
-  const key = 'local-' + id;
+  const key = 'local-' + (extra.slot ? extra.slot + '-' : '') + id;
   await IDB.putMany('files', [[key, f]]); DB.cachedFiles.add(key);
-  await IDB.putMany('uploads', [[undefined, { kind: FILE_KIND[table], taskId: id, ...f, ...(extra.by ? { by: extra.by } : {}), at: Date.now() }]]);
-  DB.upTasks.add(id);
+  await IDB.putMany('uploads', [[undefined, { kind: extra.slot === 'pass' ? 'passfile' : FILE_KIND[table], taskId: id, ...f, ...(extra.by ? { by: extra.by } : {}), at: Date.now() }]]);
+  DB.upTasks.add(extra.slot ? extra.slot + ':' + id : id);
   syncSoon();
   return 'queued';
 }
@@ -432,6 +434,29 @@ async function getRowFile(table, p) {
   const f = { name: res.name, mime: res.mime, data: res.data };
   await IDB.putMany('files', [[res.fileId, f]]);
   DB.cachedFiles.add(res.fileId);
+  return f;
+}
+/** Паспорт обладнання: з рядка (демо), з телефона або з сервера. */
+async function getPassFile(e) {
+  if (String(e.passFile || '').startsWith('data:')) { const [head, data] = e.passFile.split(','); return { name: e.passFileName || 'Паспорт', mime: head.slice(5).replace(';base64', ''), data }; }
+  for (const k of [e.passFileId, 'local-pass-' + e.id]) { const hit = k ? await IDB.get('files', k) : null; if (hit) return hit; }
+  if (!e.passFileId) throw new Error('Паспорт ще не відправлено на сервер');
+  if (!navigator.onLine) throw new Error('Паспорт ще не збережено на телефоні, а інтернету немає');
+  const res = await api({ action: 'getfile', table: 'Обладнання', id: e.id, slot: 'pass' }, 120000);
+  if (!res.ok) throw new Error(res.error);
+  const f = { name: res.name, mime: res.mime, data: res.data };
+  await IDB.putMany('files', [[res.fileId, f]]); DB.cachedFiles.add(res.fileId);
+  return f;
+}
+/** Акт приймання-передачі (PDF із сервера). */
+async function getActFile(m) {
+  const hit = m.actFileId ? await IDB.get('files', m.actFileId) : null; if (hit) return hit;
+  if (!m.actFileId) throw new Error('Акт ще не сформовано');
+  if (!navigator.onLine) throw new Error('Немає інтернету');
+  const res = await api({ action: 'getfile', table: 'Переміщення', id: m.id, slot: 'act' }, 120000);
+  if (!res.ok) throw new Error(res.error);
+  const f = { name: res.name, mime: res.mime, data: res.data };
+  await IDB.putMany('files', [[res.fileId, f]]); DB.cachedFiles.add(res.fileId);
   return f;
 }
 const queueProto = (id, file) => queueRowFile('Протоколи', id, file);
@@ -467,9 +492,9 @@ async function sendUploads() {
         if (res.ok) {
           const p = get(tbl, u.taskId);
           if (p) await applyLocal(tbl, { ...p, ...res.file });
-          await IDB.putMany('files', [[res.file.fileId, { name: res.file.fileName, mime: u.mime, data: u.data }]]);
+          await IDB.putMany('files', [[res.cacheId || res.file.fileId, { name: res.label || res.file.fileName, mime: u.mime, data: u.data }]]);
           await IDB.delMany('uploads', [up.keys[i]]);
-          toast('Файл завантажено: ' + res.file.fileName);
+          if (u.kind !== 'eqphoto') toast('Файл завантажено: ' + (res.label || res.file.fileName));
         } else if (res.error !== 'NOROW') {
           await IDB.delMany('uploads', [up.keys[i]]);
           toast('Файл не завантажено: ' + res.error);
@@ -497,7 +522,7 @@ async function sendUploads() {
 async function refreshQueue() {
   const v = (await IDB.getAll('uploads')).values;
   const isMail = u => u.kind === 'mail' || u.kind === 'mailproto' || u.kind === 'maildoc' || u.kind === 'mailcert';
-  DB.upTasks = new Set(v.filter(u => !isMail(u)).map(u => u.taskId));
+  DB.upTasks = new Set(v.filter(u => !isMail(u)).map(u => u.kind === 'passfile' ? 'pass:' + u.taskId : u.taskId));
   DB.mailQ = new Set(v.filter(isMail).map(u => u.taskId));
   DB.cachedFiles = new Set((await IDB.getAll('files')).keys);
 }
