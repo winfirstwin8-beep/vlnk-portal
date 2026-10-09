@@ -1253,7 +1253,9 @@ ROUTES.docs = () => {
   let h = isLead() ? `<div class="row gap"><a class="btn ghost" href="#/ackmatrix">Журнал ознайомлення</a></div>` + fab('#/docform/new') : '';
   for (const k of INSTR_KINDS) {
     const ds = docs.filter(d => d.kind === k).sort(byTitle);
-    if (ds.length) h += card(k, ds.map(docItem).join(''));
+    if (k === 'Інструкція ДІВ') h += card('Інструкції ДІВ', (ds.length ? ds.map(docItem).join('') : `<p class="small mute">Інструкції з роботи з джерелами іонізуючого випромінювання ще не додані</p>`) +
+      (isLead() ? `<a class="btn small ghost" href="#/docform/new/div">＋ Додати інструкцію ДІВ</a>` : ''));
+    else if (ds.length) h += card(k, ds.map(docItem).join(''));
   }
   if (!docs.length) h += empty('Інструкції ще не додані');
   h += `<p class="small mute">Нормативні документи та методики контролю — у розділі <a href="#/nd">НД</a>.</p>`;
@@ -1369,7 +1371,7 @@ ROUTES.docform = (id = 'new', sect) => {
   if (!isLead()) return denied();
   const src = id !== 'new' ? get('Документи', id) : null;
   const nd = src ? isND(src) : sect === 'nd';
-  const d = src || { kind: nd ? ND_KINDS[0] : INSTR_KINDS[0], ndGroup: UI.ndg && UI.ndg !== 'all' ? UI.ndg : 'Загальна НД', required: true, date: today() };
+  const d = src || { kind: nd ? ND_KINDS[0] : sect === 'div' ? 'Інструкція ДІВ' : INSTR_KINDS[0], ndGroup: UI.ndg && UI.ndg !== 'all' ? UI.ndg : 'Загальна НД', required: true, date: today() };
   const back = nd ? '#/nd' : '#/docs';
   const body = (nd
       ? `<div class="grid2">${fSel('Вид документа', 'kind', ND_KINDS, d.kind)}${fSel('Розділ НД', 'ndGroup', ND_GROUPS.map(g => [g, g === 'ДДК' ? 'ДДК' : g]), ndGroupOf(d))}</div>`
