@@ -363,3 +363,15 @@ details.fold[open] > summary { margin-bottom: 8px; }
 .actdoc h2{text-align:center;font-size:17px;margin:0 0 10px;line-height:1.25}.actdoc h2 small{font-weight:500;font-size:13px;color:var(--mute)}
 .tblwrap{overflow-x:auto;-webkit-overflow-scrolling:touch;max-width:100%}
 .actdoc .kittbl{min-width:520px}
+
+.filetile{display:flex;align-items:center;gap:12px;width:100%;margin:8px 0 6px;padding:10px 12px;border:1.5px solid color-mix(in srgb,var(--pri) 45%,var(--line));border-radius:12px;background:color-mix(in srgb,var(--pri) 8%,var(--card));color:var(--ink);text-align:left;font:inherit;cursor:pointer;box-shadow:0 1px 3px rgba(0,0,0,.06)}
+.filetile:hover,.filetile:focus-visible{border-color:var(--pri);background:color-mix(in srgb,var(--pri) 14%,var(--card))}
+.filetile:disabled{opacity:.6;cursor:default}
+.filetile .ft-ic{flex:0 0 auto;display:grid;place-items:center;width:46px;height:54px;border-radius:6px 14px 6px 6px;color:#fff;font-weight:800;font-size:12px;letter-spacing:.5px}
+.ft-pdf{background:#d93a2b}.ft-doc{background:#2b5fb4}.ft-xls{background:#1e7a45}.ft-img{background:#7a4fc0}.ft-oth{background:#5f6b7a}
+.filetile .ft-body{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:2px}
+.filetile .ft-body b{font-size:15px;line-height:1.3;overflow-wrap:anywhere}
+.filetile .ft-body small{color:var(--mute);font-size:12px}
+.filetile .ft-go{flex:0 0 auto;font-weight:700;color:var(--pri);font-size:14px;white-space:nowrap}
+.filetile.big{padding:14px 16px;margin:4px 0 12px}.filetile.big .ft-ic{width:56px;height:66px;font-size:14px}.filetile.big .ft-body b{font-size:16.5px}
+@media (max-width:340px){.filetile .ft-go{display:none}}
