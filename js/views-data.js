@@ -1226,11 +1226,23 @@ FORMS.kit = async d => {
 
 // ═════════ ДОКУМЕНТИ: «Інструкції» (ОП, робочі, посадові, положення) і «НД» (загальна, по методах, ДДК) ═════════
 const docReadable = d => !!(String(d.text || '').trim() || d.file || d.fileId);
+/** Помітна «плитка» файлу документа: тип (PDF / Word / Excel / фото), назва, «Відкрити». */
+function docFileTile(d, big) {
+  const pend = DB.upTasks.has(d.id);
+  if (!(d.file || d.fileId || pend)) return '';
+  const n = d.fileName || 'Файл документа';
+  const ext = (String(n).match(/\.([a-z0-9]{2,5})$/i) || [, ''])[1].toLowerCase();
+  const t = ext === 'pdf' ? ['PDF', 'pdf'] : /^docx?$/.test(ext) ? ['DOC', 'doc'] : /^xlsx?$/.test(ext) ? ['XLS', 'xls'] : /^(jpe?g|png|webp|heic)$/.test(ext) ? ['ФОТО', 'img'] : ['ФАЙЛ', 'oth'];
+  const off = String(d.file || '').startsWith('data:') || DB.cachedFiles.has(d.fileId) || DB.cachedFiles.has('local-' + d.id);
+  return `<button type="button" class="filetile${big ? ' big' : ''}" data-act="docfile" data-id="${esc(d.id)}"${pend ? ' disabled' : ''}>
+    <span class="ft-ic ft-${t[1]}">${t[0]}</span><span class="ft-body"><b>${esc(n.replace(/\.[a-z0-9]{2,5}$/i, ''))}</b><small>${pend ? '⏳ файл ще відправляється' : (ext ? ext.toUpperCase() + ' · ' : '') + (off ? 'збережено на телефоні · ' : '') + 'натисніть, щоб відкрити'}</small></span><span class="ft-go">Відкрити ›</span></button>`;
+}
 function docItem(d) {
   const a = ME.personId ? ackOf(d.id, ME.personId) : null;
   const rd = docReadable(d);
   return `<div class="item"><div class="row between">${rd ? `<a href="#/doc/${esc(d.id)}"><b>${esc(d.title)}</b></a>` : `<b>${esc(d.title)}</b>`}${truthy(d.required) ? badge('обовʼязково') : ''}</div>
-    <span class="small mute">${isND(d) ? esc(d.kind) + (d.version || d.date ? ' · ' : '') : ''}${d.version ? 'ред. ' + esc(d.version) : ''}${d.date ? ' від ' + uaDate(d.date) : ''}${String(d.text || '').trim() ? ' · текст у порталі' : ''}${d.fileName ? ' · файл' : ''}</span>
+    <span class="small mute">${isND(d) ? esc(d.kind) + (d.version || d.date ? ' · ' : '') : ''}${d.version ? 'ред. ' + esc(d.version) : ''}${d.date ? ' від ' + uaDate(d.date) : ''}${String(d.text || '').trim() ? ' · текст у порталі' : ''}</span>
+    ${docFileTile(d)}
     <div class="row gap">${rd ? `<a class="btn small ${a || !ME.personId ? 'ghost' : 'primary'}" href="#/doc/${esc(d.id)}">📖 ${a || !ME.personId ? 'Читати' : 'Читати й ознайомитися'}</a>` : ''}${d.link ? `<a class="btn small ghost" href="${esc(d.link)}" target="_blank" rel="noopener">Відкрити ↗</a>` : ''}${docSendBtns(d)}
     ${ME.personId ? (a ? badge('✓ ознайомлений ' + uaDate(a.date), 'ok') : rd ? '' : `<button class="btn small primary" data-act="ack" data-id="${esc(d.id)}">Ознайомлений</button>`) : ''}
     ${isLead() ? `<a class="btn small ghost" href="#/docform/${esc(d.id)}">Змінити</a>` : ''}</div></div>`;
@@ -1281,9 +1293,10 @@ ROUTES.doc = id => {
   const fs = UI.docfs || 16;
   const hasText = !!String(d.text || '').trim(), hasFile = !!(d.file || d.fileId || DB.upTasks.has(d.id));
   let h = `<div class="objhead"><h2>${esc(d.title)}</h2><p>${esc(d.kind)}${isND(d) ? ' · ' + esc(ndGroupOf(d)) : ''}${d.version ? ' · ред. ' + esc(d.version) : ''}${d.date ? ' від ' + uaDate(d.date) : ''}</p></div>`;
-  h += `<div class="row gap docbar"><button class="btn small ghost" data-act="docfs" data-v="-1" aria-label="Менший шрифт">A−</button><button class="btn small ghost" data-act="docfs" data-v="1" aria-label="Більший шрифт">A+</button>
-    ${hasFile ? `<button class="btn small ghost" data-act="docfile" data-id="${esc(d.id)}">📄 ${esc(d.fileName || 'Файл документа')}</button>` : ''}${d.link ? `<a class="btn small ghost" href="${esc(d.link)}" target="_blank" rel="noopener">Google Диск ↗</a>` : ''}${docSendBtns(d)}${isLead() ? `<a class="btn small ghost" href="#/docform/${esc(d.id)}">Змінити</a>` : ''}</div>`;
-  h += hasText ? `<article class="doctext" style="font-size:${fs}px">${docTextHtml(d.text)}</article><div id="docend" class="small mute center">— кінець документа —</div>` : `<div class="card"><p class="mute">Текст документа не внесено — відкрийте файл${d.link ? ' або посилання' : ''}.</p></div>`;
+  h += `<div class="row gap docbar">${hasText ? `<button class="btn small ghost" data-act="docfs" data-v="-1" aria-label="Менший шрифт">A−</button><button class="btn small ghost" data-act="docfs" data-v="1" aria-label="Більший шрифт">A+</button>` : ''}
+    ${d.link ? `<a class="btn small ghost" href="${esc(d.link)}" target="_blank" rel="noopener">Google Диск ↗</a>` : ''}${docSendBtns(d)}${isLead() ? `<a class="btn small ghost" href="#/docform/${esc(d.id)}">Змінити</a>` : ''}</div>`;
+  if (hasFile) h += docFileTile(d, true);
+  h += hasText ? `<article class="doctext" style="font-size:${fs}px">${docTextHtml(d.text)}</article><div id="docend" class="small mute center">— кінець документа —</div>` : (hasFile ? '' : `<div class="card"><p class="mute">Текст документа не внесено${d.link ? ' — відкрийте посилання' : ''}.</p></div>`);
   if (ME.personId) {
     h += a ? card('', `<p class="ok center"><b>✓ Ви ознайомились ${uaDate(a.date)}</b></p>`)
       : card('', `<button class="btn primary wide" id="docack" data-act="ack" data-id="${esc(d.id)}" ${hasText ? 'disabled' : hasFile ? 'disabled' : ''}>Ознайомлений(-а) з документом</button>
