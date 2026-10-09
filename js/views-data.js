@@ -469,7 +469,6 @@ ROUTES.staff = () => {
   const f = UI.sfilt || '';
   h += `<div class="kpis staffkpi">${[['', 'Усього', st.length], ['work', 'На роботі', work], ['відпустка', '🌴 У відпустці', cnt('відпустка')], ['лікарняний', '🤒 На лікарняному', cnt('лікарняний')], ['ЗСУ', '🎖 В ЗСУ', cnt('ЗСУ')], ['навчання', '🎓 На навчанні', cnt('навчання')]]
     .map(([k, l, n]) => `<button type="button" class="kpi${f === k ? ' on' : ''}" data-act="sfilt" data-k="${esc(k)}"><b>${n}</b><span>${l}</span></button>`).join('')}</div>`;
-  if (isLead()) h += `<button class="btn ghost small" data-act="importold">⬇ Табельні номери, дати й пошта з попереднього порталу</button>`;
   const list = f === 'work' ? st.filter(p => !stOf[p.id]) : f ? st.filter(p => stOf[p.id] === f) : st;
   h += list.map(p => `<a class="item" href="#/person/${esc(p.id)}">
     <div class="row between"><b>${esc(p.pib)}</b><span>${stOf[p.id] ? badge(esc(STATE_LABEL[stOf[p.id]] || stOf[p.id]), 'warn') + ' ' : ''}${bOf[p.id] ? badge('Б' + bOf[p.id], 'pri') : ''}</span></div>
