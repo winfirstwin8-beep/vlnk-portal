@@ -1212,26 +1212,91 @@ FORMS.eqdocmail = async (d, key) => {
 };
 
 // ═════════ КОМПЛЕКТАЦІЯ АВТО ═════════
+/** Позиції комплектації автомобіля: [ключ, назва, норма, од., регулярка для обліку обладнання в авто]. */
+const KIT_POS = [
+  ['gen', 'Електростанція', 1, 'шт'],
+  ['xr325', 'Рентгенапарат (до Ø325 мм)', 1, 'шт', /рентген|арина|рпд|eresco|балтоспот|baltospot|cp ?160|ср ?160/i],
+  ['xr325p', 'Рентгенапарат (більше Ø325 мм)', 1, 'шт', null],
+  ['dos', 'Дозиметр', 1, 'шт', /дозиметр|радіометр|мкс|дкс/i],
+  ['vok', 'Набір ВОК', 1, 'компл.', /\bвок\b|візуально-оптичн|vt-1|новотест/i],
+  ['thm', 'Товщиномір металу', 1, 'шт', /товщиномір.*(метал|ультразв)|ультразвуков.*товщиномір/i],
+  ['thc', 'Товщиномір (покриттів)', 1, 'шт', /товщиномір.*(покрит|ізоляц|фарб)/i],
+  ['ut', 'Ультразвуковий дефектоскоп', 1, 'шт', /дефектоскоп.*(ультразв|уз)|sonocon|уд2|уд4/i],
+  ['c1020', 'Касети 10×20 см', 10, 'шт', /касет.*10\s*[хx×]\s*20/i],
+  ['c1030', 'Касети 10×30 см', 10, 'шт', /касет.*10\s*[хx×]\s*30/i],
+  ['c1040', 'Касети 10×40 см', 10, 'шт', /касет.*10\s*[хx×]\s*40/i],
+  ['c3040', 'Касети 30×40 см', 2, 'шт', /касет.*30\s*[хx×]\s*40/i],
+  ['belt', 'Мірний пояс', 1, 'шт', /мірн.*пояс/i],
+  ['iqi', 'Дефектометри', 1, 'компл.', /дефектометр|еталон.*чутлив/i],
+  ['dens', 'Денситометр', 1, 'шт', /денситометр/i],
+  ['neg', 'Негатоскоп', 1, 'шт', /негатоскоп/i],
+  ['lamp', 'Неактинічний ліхтар', 1, 'шт', /неактині|ліхтар.*червон/i],
+  ['tank', 'Ванночки для обробки плівки', 3, 'шт', /ванночк/i],
+  ['film', 'Рентгенплівка', 1, 'уп.', null],
+  ['chem', 'Реактиви (проявник, фіксаж)', 1, 'компл.', null],
+  ['pt', 'Кольорова дефектоскопія (набір PT)', 1, 'компл.', null],
+  ['sign', 'Знаки «Радіаційно небезпечна зона»', 1, 'компл.', /знак.*радіац/i]
+];
+const kitJson = k => { try { return JSON.parse(setting(k, '{}')) || {}; } catch (e) { return {}; } };
+const kitNorm = () => { const n = kitJson('kitnorm'); return Object.fromEntries(KIT_POS.map(p => [p[0], n[p[0]] !== undefined && n[p[0]] !== '' ? num(n[p[0]]) : p[2]])); };
+/** Кількість за обліком: електростанції — закріплені за авто, решта — обладнання в авто за назвою. */
+function kitAuto(car) {
+  const inCar = all('Обладнання').filter(e => e.holderType === 'авто' && e.holderId === car.id && e.condition !== 'списано');
+  const out = { gen: all('Генератори').filter(g => g.carId === car.id).length };
+  KIT_POS.forEach(p => { if (p[4]) out[p[0]] = inCar.filter(e => p[4].test(String(e.name || '') + ' ' + String(e.note || ''))).length; });
+  return out;
+}
+/** Фактична комплектація авто: внесене вручну, а якщо не внесено — за обліком. */
+function kitHave(car) {
+  const man = kitJson('carkit:' + car.id), auto = kitAuto(car);
+  return Object.fromEntries(KIT_POS.map(p => [p[0], man[p[0]] !== undefined && man[p[0]] !== '' ? { v: num(man[p[0]]), src: 'm' } : { v: num(auto[p[0]]), src: 'a' }]));
+}
+async function saveSetting(key, value) {
+  const r = all('Налаштування').find(x => x.key === key);
+  await save('Налаштування', { ...(r || {}), key, value });
+}
 ROUTES.kit = () => {
   if (isVisitor()) return denied();
-  const req = all('Комплектація');
-  const methods = METHODS.filter(m => req.some(r => normM(r.method) === m));
-  let h = `<p class="small mute">Обладнання в автомобілі порівнюється з нормою комплектації за кожним методом (збіг за назвою).</p>`;
+  const norm = kitNorm();
+  const need = KIT_POS.filter(p => norm[p[0]] > 0);
+  let h = `<p class="small mute">Позиції комплектації автомобіля бригади. Кількість — внесена вручну (✎) або за обліком обладнання в авто і закріплених електростанцій.</p>`;
+  if (isLead()) h += `<div class="row gap"><a class="btn ghost" href="#/kitnorm">⚙ Норма комплектації</a></div>`;
   for (const c of all('Авто')) {
-    const inCar = all('Обладнання').filter(e => e.holderType === 'авто' && e.holderId === c.id);
-    let rows = '', okM = 0;
-    for (const m of methods) {
-      const items = req.filter(r => normM(r.method) === m);
-      const st = items.map(it => { const have = inCar.filter(e => String(e.name).toLowerCase().includes(String(it.item).toLowerCase())).length; return { it, have, ok: have >= (num(it.qty) || 1) }; });
-      const full = st.every(x => x.ok); if (full) okM++;
-      rows += `<details><summary>${full ? '✅' : '⚠️'} <b>${esc(m)}</b> <span class="small mute">${st.filter(x => x.ok).length}/${st.length}</span></summary>
-        <ul class="plain small">${st.map(x => `<li class="${x.ok ? '' : 'bad'}">${x.ok ? '✓' : '✗'} ${esc(x.it.item)} — ${x.have}/${num(x.it.qty) || 1}${isLead() ? ` <a href="#" data-act="del" data-t="Комплектація" data-id="${esc(x.it.id)}" data-back="#/kit">×</a>` : ''}</li>`).join('')}</ul></details>`;
-    }
-    h += card('🚐 ' + esc(c.name) + (c.plate ? ' · ' + esc(c.plate) : ''), (methods.length ? `<p class="small">Укомплектовано за методами: <b>${okM} з ${methods.length}</b></p>${bar(okM / methods.length * 100)}` + rows : empty('Норми комплектації не задані')) +
-      `<p class="small mute">Усього обладнання в авто: ${inCar.length}</p>`);
+    const hv = kitHave(c);
+    const ok = need.filter(p => hv[p[0]].v >= norm[p[0]]).length;
+    const rows = KIT_POS.map(p => { const x = hv[p[0]], n = norm[p[0]]; const st = !n ? '<span class="mute">—</span>' : x.v >= n ? '<span class="ok">✓</span>' : '<span class="bad">✗</span>';
+      return [esc(p[1]), n ? fmtN(n) + ' ' + p[3] : '—', fmtN(x.v) + (x.src === 'm' ? ' <span class="mute small">✎</span>' : ''), st]; });
+    h += card('🚐 ' + esc(c.name) + (c.plate ? ' · ' + esc(c.plate) : ''),
+      `<p class="small">Укомплектовано: <b>${ok} з ${need.length}</b> позицій</p>${bar(need.length ? ok / need.length * 100 : 0)}` +
+      `<details${ok < need.length ? ' open' : ''}><summary class="small">Позиції</summary>${table(['Позиція', 'Норма', 'Є', ''], rows, 'num first')}</details>` +
+      (isLead() ? `<a class="btn ghost small" href="#/kitcar/${esc(c.id)}">✎ Внести комплектацію</a>` : ''));
   }
-  if (isLead()) h += card('Додати позицію до норми', form('kit', '', `<div class="grid2">${fSel('Метод', 'method', METHODS, 'RT')}${fNum('Кількість', 'qty', 1)}</div>${fInp('Найменування (частина назви)', 'item', '', { req: true, ph: 'напр. Негатоскоп' })}`, { submit: 'Додати' }));
+  if (!all('Авто').length) h += empty('Автомобілі не додані');
+  const req = all('Комплектація');
+  if (req.length) h += card('Додатково: норми за методами НК', `<details><summary class="small">Позиції за методами (${req.length})</summary><ul class="plain small">${req.map(r => `<li>${esc(normM(r.method))} · ${esc(r.item)} — ${num(r.qty) || 1}${isLead() ? ` <a href="#" data-act="del" data-t="Комплектація" data-id="${esc(r.id)}" data-back="#/kit">×</a>` : ''}</li>`).join('')}</ul></details>`);
   return page('Комплектація авто', h, '#/equip');
+};
+ROUTES.kitcar = id => {
+  if (!isLead()) return denied();
+  const c = get('Авто', id); if (!c) return notFound();
+  const hv = kitHave(c), auto = kitAuto(c), norm = kitNorm();
+  const body = `<p class="small mute">Вкажіть фактичну кількість. Порожнє поле — береться з обліку обладнання (зараз показано в підказці).</p>` +
+    KIT_POS.map(p => fNum(p[1] + ', ' + p[3], 'k_' + p[0], hv[p[0]].src === 'm' ? hv[p[0]].v : '', { hint: `норма ${fmtN(norm[p[0]])} · за обліком ${fmtN(num(auto[p[0]]))}` })).join('');
+  return page('Комплектація · ' + c.name, form('kitcar', id, body), '#/kit');
+};
+FORMS.kitcar = async (d, id) => {
+  const v = {}; KIT_POS.forEach(p => { const x = d['k_' + p[0]]; if (x !== undefined && String(x).trim() !== '') v[p[0]] = num(x); });
+  await saveSetting('carkit:' + id, JSON.stringify(v)); UI.dirty = false; savedMsg('Комплектацію збережено'); go('#/kit');
+};
+ROUTES.kitnorm = () => {
+  if (!isLead()) return denied();
+  const norm = kitNorm();
+  const body = `<p class="small mute">Норма на один автомобіль. 0 — позиція не обовʼязкова.</p>` + KIT_POS.map(p => fNum(p[1] + ', ' + p[3], 'n_' + p[0], norm[p[0]])).join('');
+  return page('Норма комплектації', form('kitnorm', 'n', body), '#/kit');
+};
+FORMS.kitnorm = async d => {
+  const v = {}; KIT_POS.forEach(p => { const x = d['n_' + p[0]]; if (x !== undefined && String(x).trim() !== '') v[p[0]] = num(x); });
+  await saveSetting('kitnorm', JSON.stringify(v)); UI.dirty = false; savedMsg('Норму збережено'); go('#/kit');
 };
 FORMS.kit = async d => {
   if (!need(d, [['item', 'найменування']])) return;
