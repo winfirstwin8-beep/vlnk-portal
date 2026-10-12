@@ -1,7 +1,7 @@
 /* Портал ВЛНК — демо-дані (вигадані), лише для ознайомлення без сервера */
 'use strict';
 
-const DEMO_VER = '1.8.72'; // змінювати, коли змінюються демо-дані
+const DEMO_VER = '1.8.75'; // змінювати, коли змінюються демо-дані
 const DEMO_USER = { email: 'demo@vlnk.local', name: 'Гончаренко О.В. (демо)', personId: 'p1', role: 'керівник' };
 
 async function seedDemo() {
@@ -321,6 +321,11 @@ async function seedDemo() {
   add('Коментарі', { id: 'cm1', newsId: 'n1', date: plusDays(-2), author: 'Литвиненко А.П.', text: 'Прийнято, документи Б1 подамо до пʼятниці.' });
   [['labName', 'Відділ лабораторії неруйнівного контролю (ВЛНК)'], ['orgName', 'Демо-підприємство'], ['headPosition', 'Начальник ВЛНК'], ['headName', 'О.В. Гончаренко'], ['rtNormHours', '0.5'], ['vacDaysDefault', '24'], ['winterFrom', '11-01'], ['winterTo', '03-31']]
     .forEach(([key, value], i) => add('Налаштування', { id: 's' + i, key, value }));
+  // ІДК: дози за квартали поточного року для персоналу з RT (одному — не внесено III кв., для демонстрації нагадування)
+  rows.filter(([t, r]) => t === 'Сертифікати' && /RT/.test(r.method)).map(([, r]) => r.personId).filter((v, i, a) => a.indexOf(v) === i).forEach((pid, i) => {
+    const d = {}; [1, 2, 3].forEach(q => { if (!(i === 1 && q === 3)) d[Y + '-' + q] = { dose: Math.round((0.18 + ((i * 7 + q * 3) % 11) * 0.06) * 1000) / 1000, date: Y + '-' + String(q * 3).padStart(2, '0') + '-2' + (i % 8), note: 'ТЛД № ' + (300 + i) }; });
+    add('Налаштування', { id: 'sidk' + i, key: 'idk:' + pid, value: JSON.stringify(d) });
+  });
 
   const entries = rows.map(([t, r]) => [t + '|' + r.id, { t, r }]);
   await IDB.putMany('rows', entries);

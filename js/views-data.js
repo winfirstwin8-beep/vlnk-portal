@@ -634,6 +634,71 @@ FORMS.invite = async (d, id) => {
   go('#/access');
 };
 
+// ───────── ІДК — індивідуальний дозиметричний контроль ─────────
+const QN = ['I', 'II', 'III', 'IV'];
+const idkData = pid => { try { return JSON.parse(setting('idk:' + pid, '{}')) || {}; } catch (e) { return {}; } };
+const idkKey = (y, q) => y + '-' + q;
+const qOfDate = d => Math.floor((+String(d).slice(5, 7) - 1) / 3) + 1;
+const qEndDate = (y, q) => monthEnd(y + '-' + z2(q * 3));
+const idkLimit = () => num(setting('idkLimit', '13')) || 13;
+/** Чи підлягає працівник ІДК (персонал категорії А): явна позначка керівника, інакше — є сертифікат RT або вже є записи ІДК. */
+function idkNeeded(pid) {
+  let m = {}; try { m = JSON.parse(setting('idkcat', '{}')) || {}; } catch (e) { }
+  if (m[pid] !== undefined) return truthy(m[pid]);
+  return all('Сертифікати').some(c => c.personId === pid && /RT/i.test(c.method)) || Object.keys(idkData(pid)).length > 0;
+}
+const idkYearSum = (pid, y) => [1, 2, 3, 4].reduce((s, q) => s + num((idkData(pid)[idkKey(y, q)] || {}).dose), 0);
+/** Нагадування ІДК: поточний квартал — за 15 днів до кінця; попередній — якщо не внесено. */
+function idkDue(pid, t = today()) {
+  const y = +t.slice(0, 4), q = qOfDate(t), d = idkData(pid), out = [];
+  const end = qEndDate(y, q);
+  if (!d[idkKey(y, q)] && t >= addDays(end, -15)) out.push({ cls: 'warn', y, q, end, text: `провести до ${uaDate(end)}` });
+  const py = q === 1 ? y - 1 : y, pq = q === 1 ? 4 : q - 1;
+  if (!d[idkKey(py, pq)]) out.push({ cls: 'bad', y: py, q: pq, end: qEndDate(py, pq), text: 'не внесено' });
+  return out;
+}
+function idkCard(p) {
+  const pid = p.id, lead = isLead(), need = idkNeeded(pid), d = idkData(pid);
+  if (!need && !lead && !Object.keys(d).length) return '';
+  const Y = +today().slice(0, 4), lim = idkLimit();
+  const years = [...new Set([Y, ...Object.keys(d).map(k => +k.slice(0, 4))])].sort((a, b) => b - a).slice(0, 3);
+  const tbl = years.map(y => { const sum = idkYearSum(pid, y);
+    return `<tr><td><b>${y}</b></td>${[1, 2, 3, 4].map(q => { const r = d[idkKey(y, q)]; const due = y === Y && q === qOfDate(today()) && !r && today() >= addDays(qEndDate(y, q), -15);
+      return `<td class="${due ? 'warn' : ''}">${r ? `<b>${fmtN3(num(r.dose))}</b>${r.date ? `<br><span class="small mute">${uaDate(r.date).slice(0, 5)}</span>` : ''}` : (y < Y || (y === Y && q < qOfDate(today())) ? '<span class="bad">—</span>' : '<span class="mute">·</span>')}${lead ? `<br><a class="small" href="#/idkform/${esc(pid)}/${idkKey(y, q)}">✎</a>` : ''}</td>`; }).join('')}<td class="${sum > lim ? 'bad' : sum >= lim * 0.8 ? 'warn' : 'ok'}"><b>${fmtN3(sum)}</b></td></tr>`; }).join('');
+  const dues = need ? idkDue(pid) : [];
+  return card('ІДК — індивідуальний дозиметричний контроль',
+    (need ? '' : '<p class="small mute">Працівник не віднесений до персоналу категорії А — ІДК не обовʼязковий.</p>') +
+    `<div class="tblwrap"><table class="tbl num idktbl"><thead><tr><th>Рік</th>${QN.map(q => `<th>${q} кв.</th>`).join('')}<th>За рік</th></tr></thead><tbody>${tbl}</tbody></table></div>` +
+    `<p class="small mute">Доза, мЗв (ефективна, за даними ІДК). Контрольний рівень для персоналу категорії А — ${fmtN(lim)} мЗв/рік. ІДК проводиться щокварталу; нагадування — за 15 днів до кінця кварталу.</p>` +
+    dues.map(x => `<p class="${x.cls}">${x.cls === 'bad' ? '⛔' : '⏰'} ІДК за ${QN[x.q - 1]} кв. ${x.y}: ${x.text}</p>`).join('') +
+    (lead ? `<div class="row gap"><a class="btn ghost small" href="#/idkform/${esc(pid)}/${idkKey(Y, qOfDate(today()))}">+ Внести дозу</a><button type="button" class="btn ghost small" data-act="idkcat" data-id="${esc(pid)}" data-v="${need ? '0' : '1'}">${need ? 'Не підлягає ІДК' : 'Підлягає ІДК (кат. А)'}</button></div>` : ''));
+}
+ACTS.idkcat = async d => {
+  let m = {}; try { m = JSON.parse(setting('idkcat', '{}')) || {}; } catch (e) { }
+  m[d.id] = d.v === '1'; await saveSetting('idkcat', JSON.stringify(m)); savedMsg('Збережено'); render();
+};
+ROUTES.idkform = (pid, key) => {
+  if (!isLead()) return denied();
+  const p = get('Персонал', pid); if (!p) return notFound();
+  const k = /^\d{4}-[1-4]$/.test(key || '') ? key : idkKey(+today().slice(0, 4), qOfDate(today()));
+  const r = idkData(pid)[k] || {};
+  const d = UI.draft['idk:' + pid] || { year: k.slice(0, 4), q: k.slice(5), dose: r.dose ?? '', date: r.date || today(), note: r.note || '' };
+  const ys = [0, -1, -2].map(i => String(+today().slice(0, 4) + i));
+  const body = `<div class="note">${esc(p.pib)}${p.posada ? ' · ' + esc(p.posada) : ''}</div>` +
+    `<div class="grid2">${fSel('Рік', 'year', ys, d.year)}${fSel('Квартал', 'q', [1, 2, 3, 4].map(q => [String(q), QN[q - 1] + ' квартал']), String(d.q))}</div>` +
+    `<div class="grid2">${fNum('Доза, мЗв', 'dose', d.dose, { req: true, step: '0.001' })}${fInp('Дата вимірювання / отримання результату', 'date', d.date, { type: 'date' })}</div>` +
+    fInp('Примітка (№ дозиметра ТЛД, організація)', 'note', d.note) +
+    `<p class="small mute">Порожня доза при збереженні видаляє запис за квартал.</p>`;
+  return page('ІДК · внесення дози', form('idk', pid, body), '#/person/' + pid);
+};
+FORMS.idk = async (d, pid) => {
+  const all_ = idkData(pid), k = idkKey(d.year, d.q);
+  if (String(d.dose).trim() === '') delete all_[k]; else all_[k] = { dose: num(d.dose), date: d.date || '', note: d.note || '' };
+  await saveSetting('idk:' + pid, JSON.stringify(all_));
+  delete UI.draft['idk:' + pid]; UI.dirty = false;
+  const sum = idkYearSum(pid, +d.year), lim = idkLimit();
+  savedMsg(sum > lim ? `Збережено. Увага: сума за ${d.year} — ${fmtN3(sum)} мЗв, перевищено ${lim} мЗв` : 'Дозу збережено'); go('#/person/' + pid);
+};
 ROUTES.person = id => {
   if (isVisitor()) return denied();
   const p = get('Персонал', id);
@@ -662,6 +727,7 @@ ROUTES.person = id => {
   h += card('Сертифікати з НК', (cs.length ? cs.map(c => certItem(c, canCert, lead)).join('') : empty('Сертифікатів не внесено')) +
     (cs.length ? '<p class="small mute">Скан сертифіката (PDF або фото) зберігається на Google Диску в папці «Сертифікати НК / ПІБ». «На пошту» — надсилає файл на ваш email.</p>' : ''),
     lead ? `<a class="small" href="#/certform/new/${esc(id)}">+ додати</a>` : '');
+  h += idkCard(p);
   const docs = all('Документи').filter(needAck);
   const ok = docs.filter(d => ackOf(d.id, id)).length;
   const missDocs = docs.filter(d => !ackOf(d.id, id));

@@ -478,6 +478,11 @@ function alerts() {
     const bo = briefs().filter(b => briefOverdue(b) && briefStat(b).left);
     const bw = briefs().reduce((s, b) => s + briefStat(b).wait, 0);
     if (bw) out.push({ cls: 'warn', href: '#/brief', text: `Інструктажі: чекають вашого підтвердження проведення — ${bw}` });
+    { const ppl = staff().filter(x => x.role !== 'відвідувач' && idkNeeded(x.id)); const soon = [], miss = [], over = [];
+      ppl.forEach(x => { idkDue(x.id).forEach(z => (z.cls === 'bad' ? miss : soon).push([x, z])); if (idkYearSum(x.id, +today().slice(0, 4)) > idkLimit()) over.push(x); });
+      if (soon.length) out.push({ cls: 'warn', href: '#/person/' + soon[0][0].id, text: `ІДК за ${QN[soon[0][1].q - 1]} кв.: провести до ${uaDate(soon[0][1].end)} — ${soon.map(s => esc(shortName(s[0].pib))).join(', ')}` });
+      if (miss.length) out.push({ cls: 'bad', href: '#/person/' + miss[0][0].id, text: `Не внесено результати ІДК за ${QN[miss[0][1].q - 1]} кв. ${miss[0][1].y}: ${miss.map(s => esc(shortName(s[0].pib))).join(', ')}` });
+      if (over.length) out.push({ cls: 'bad', href: '#/person/' + over[0].id, text: `Перевищено контрольний рівень дози (${idkLimit()} мЗв/рік): ${over.map(x => esc(shortName(x.pib))).join(', ')}` }); }
     const kn = kitNeeds();
     if (kn.length) { const byP = {}; kn.forEach(x => (byP[x.p[1]] = (byP[x.p[1]] || 0) + x.n)); out.push({ cls: 'warn', href: '#/kit', text: `Потреба в обладнанні для комплектації авто (на складі немає): ${Object.entries(byP).map(([t, n]) => esc(t) + ' — ' + fmtN(n)).join('; ')}` }); }
     const ao = acqs().filter(b => briefOverdue(b) && acqStat(b).left);
@@ -501,6 +506,7 @@ function alerts() {
   } else if (ME.personId) {
     const bt = briefTodo(ME.personId);
     if (bt.length) out.push({ cls: bt.some(briefOverdue) ? 'bad' : 'warn', href: bt.length === 1 ? '#/briefing/' + bt[0].id : '#/brief', text: `Потрібно пройти інструктаж: ${bt.map(b => esc(b.title)).join('; ')}` });
+    if (idkNeeded(ME.personId)) idkDue(ME.personId).filter(z => z.cls === 'warn').forEach(z => out.push({ cls: 'warn', href: '#/person/' + ME.personId, text: `ІДК за ${QN[z.q - 1]} кв.: здайте дозиметр / пройдіть контроль до ${uaDate(z.end)}` }));
     const at = acqTodo(ME.personId);
     if (at.length) out.push({ cls: at.some(briefOverdue) ? 'bad' : 'warn', href: at.length === 1 ? '#/acqitem/' + at[0].id : '#/acq', text: `Потрібно ознайомитися з документами: ${at.map(b => esc(b.title)).join('; ')}` });
     const missD = all('Документи').filter(d => needAck(d) && !ackOf(d.id, ME.personId));
