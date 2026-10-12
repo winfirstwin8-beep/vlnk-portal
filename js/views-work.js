@@ -94,7 +94,7 @@ function taskItem(t) {
     <span class="small mute">${esc(t.workType || '')}${t.requestNo ? (t.workType ? ' · ' : '') + 'заявка № ' + esc(t.requestNo) : ''}${t.orderNo ? ' · наказ № ' + esc(t.orderNo) : ''}</span>
     <span class="small">${methodsOf(t.methods).map(x => badge(esc(x))).join(' ')} ${t.diameters ? 'Ø ' + esc(arr(t.diameters).join(', ')) : ''}</span>
     ${fact.n || Object.keys(plan).length ? `<span class="small mute">Виконано/план: ${donePlanText(fact, plan, t.methods)}${fact.n ? ' · ' + fact.n + ' зв.' : ''}</span>` : ''}
-    ${!isVisitor() ? `<div class="tiprot">${(n => n ? `<span class="small mute">протоколів: ${n}</span>` : '')(all('Протоколи').filter(p => p.objectId === t.objectId && (p.taskId === t.id || (p.date >= t.dateFrom && p.date <= (t.dateTo || t.dateFrom)))).length)}<span role="button" tabindex="0" class="btn small primary" data-act="protoreg" data-id="${esc(t.id)}">⬆ Завантажити протокол</span></div>` : ''}
+    ${!isVisitor() ? `<div class="tiprot">${(n => n ? `<span class="small mute">протоколів: ${n}</span>` : '')(all('Протоколи').filter(p => p.objectId === t.objectId && (p.taskId === t.id || (p.date >= t.dateFrom && p.date <= (t.dateTo || t.dateFrom)))).length)}<span role="button" tabindex="0" class="btn small btn-pastel" data-act="protoreg" data-id="${esc(t.id)}">⬆ Завантажити протокол</span></div>` : ''}
   </a></div>`;
 }
 
