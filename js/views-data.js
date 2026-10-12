@@ -1318,7 +1318,7 @@ function docFileTile(d, big) {
 }
 /** Останній пройдений інструктаж, до якого прикріплено інструкцію з ОП. */
 function ohsBrief(docId, pid) {
-  return all('Інструктажі').filter(b => arr(b.docIds).includes(docId)).map(b => ({ b, p: briefPass(b.id, pid) })).filter(x => x.p).sort((x, y) => num(y.p.ts) - num(x.p.ts))[0] || null;
+  return all('Інструктажі').filter(b => !isAcq(b) && arr(b.docIds).includes(docId)).map(b => ({ b, p: briefPass(b.id, pid) })).filter(x => x.p).sort((x, y) => num(y.p.ts) - num(x.p.ts))[0] || null;
 }
 function docItem(d) {
   if (isOHS(d)) return docItemOHS(d);
@@ -1349,7 +1349,7 @@ ROUTES.docs = () => {
   const f = INSTR_KINDS.includes(UI.dkg) ? UI.dkg : 'all', fi = INSTR_KINDS.indexOf(f);
   const cnt = k => docs.filter(d => d.kind === k).length;
   let h = seg('dkg', [['all', 'Усі'], ...INSTR_KINDS.map((k, i) => [k, LBL[i] + (cnt(k) ? ' ' + cnt(k) : '')])], f).replace('class="seg"', 'class="seg wrap"');
-  if (isLead()) h += `<div class="row gap"><a class="btn ghost" href="#/ackmatrix">📋 Журнал ознайомлення</a><a class="btn ghost" href="#/brief">🎓 Журнал інструктажів (ОП)</a></div>` + fab('#/docform/new' + (fi >= 0 ? '/k' + fi : ''));
+  if (isLead()) h += `<div class="row gap"><a class="btn ghost" href="#/acq">📋 Ознайомлення з документами</a><a class="btn ghost" href="#/ackmatrix">Журнал ознайомлення</a><a class="btn ghost" href="#/brief">🎓 Інструктажі (ОП)</a></div>` + fab('#/docform/new' + (fi >= 0 ? '/k' + fi : ''));
   h += `<p class="small mute">Робочі, посадові інструкції, положення та інструкції ДІВ — ознайомлення онлайн після прочитання. Інструкції з охорони праці — через інструктажі (журнал реєстрації інструктажів).</p>`;
   let any = false;
   INSTR_KINDS.forEach((k, i) => {

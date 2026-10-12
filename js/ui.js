@@ -478,6 +478,8 @@ function alerts() {
     const bo = briefs().filter(b => briefOverdue(b) && briefStat(b).left);
     const bw = briefs().reduce((s, b) => s + briefStat(b).wait, 0);
     if (bw) out.push({ cls: 'warn', href: '#/brief', text: `Інструктажі: чекають вашого підтвердження проведення — ${bw}` });
+    const ao = acqs().filter(b => briefOverdue(b) && acqStat(b).left);
+    if (ao.length) out.push({ cls: 'bad', href: '#/acq', text: `Не ознайомились у строк: ${ao.map(b => esc(b.title) + ' (' + acqStat(b).left + ')').join('; ')}` });
     if (bo.length) out.push({ cls: 'bad', href: '#/brief', text: `Інструктажі не пройдені в строк: ${bo.map(b => esc(b.title) + ' (' + briefStat(b).left + ')').join('; ')}` });
     for (const e of all('Обладнання')) { if (!e.calibTo) continue; const v = validity(e.calibTo); if (v.cls !== 'ok') out.push({ cls: v.cls, href: '#/equip', text: `Повірка: ${esc(e.name)} ${esc(e.invNo || '')} — ${v.text}` }); }
     const req = all('Документи').filter(needAck);
@@ -497,9 +499,11 @@ function alerts() {
   } else if (ME.personId) {
     const bt = briefTodo(ME.personId);
     if (bt.length) out.push({ cls: bt.some(briefOverdue) ? 'bad' : 'warn', href: bt.length === 1 ? '#/briefing/' + bt[0].id : '#/brief', text: `Потрібно пройти інструктаж: ${bt.map(b => esc(b.title)).join('; ')}` });
+    const at = acqTodo(ME.personId);
+    if (at.length) out.push({ cls: at.some(briefOverdue) ? 'bad' : 'warn', href: at.length === 1 ? '#/acqitem/' + at[0].id : '#/acq', text: `Потрібно ознайомитися з документами: ${at.map(b => esc(b.title)).join('; ')}` });
     const missD = all('Документи').filter(d => needAck(d) && !ackOf(d.id, ME.personId));
     const mi = missD.filter(d => !isND(d)).length, mn = missD.filter(isND).length;
-    if (mi) out.push({ cls: 'warn', href: '#/docs', text: `Потрібно ознайомитися з документами (робочі, посадові, положення, ДІВ): ${mi}` });
+    if (mi && !at.length) out.push({ cls: 'warn', href: '#/docs', text: `Потрібно ознайомитися з документами (робочі, посадові, положення, ДІВ): ${mi}` });
     if (mn) out.push({ cls: 'warn', href: '#/nd', text: `Потрібно ознайомитися з НД: ${mn}` });
     const t = today(), Y = t.slice(0, 4);
     const myPpe = ppeOf(ME.personId).filter(x => x.st.cls !== 'ok');
@@ -527,7 +531,8 @@ ROUTES.menu = () => {
     ['#/ppe', '🦺', 'ЗІЗ', !vis],
     ['#/equip', '🧰', 'Обладнання', !vis],
     ['#/kit', '🚐', 'Комплектація авто', !vis],
-    ['#/brief', '🎓', 'Інструктажі', !vis],
+    ['#/brief', '🎓', 'Інструктажі з охорони праці', !vis],
+    ['#/acq', '📋', 'Ознайомлення з документами', !vis],
     ['#/docs', '📚', 'Інструкції', !vis],
     ['#/nd', '📘', 'НД', !vis],
     ['#/fuel', '⛽', 'Паливо', !vis],

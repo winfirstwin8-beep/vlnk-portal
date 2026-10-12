@@ -410,7 +410,7 @@ DOCS.fuel = p => {
 
 // ───────── 6. Графік відпусток ─────────
 DOCS.brief = p => {
-  const list = all('Інструктажі').filter(b => b.date >= p.from && b.date <= p.to).sort((a, b) => String(a.date).localeCompare(String(b.date)));
+  const list = all('Інструктажі').filter(b => !isAcq(b) && b.date >= p.from && b.date <= p.to).sort((a, b) => String(a.date).localeCompare(String(b.date)));
   const wb = wbNew();
   const ws = sheet(wb, 'Журнал', true);
   widths(ws, [4, 11, 13, 30, 26, 18, 20, 20, 10, 20, 12, 12]);

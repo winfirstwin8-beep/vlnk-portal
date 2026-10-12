@@ -14,7 +14,10 @@ function parseQuestions(text) {
 function questionsText(qs) { return arr(qs).map(x => [x.q, ...x.opts.map(o => (o.ok ? '+ ' : '- ') + o.t)].join('\n')).join('\n\n'); }
 const briefQs = b => { const v = b.questions; if (Array.isArray(v)) return v; try { return JSON.parse(v || '[]') || []; } catch (e) { return []; } };
 
-const briefs = () => all('Інструктажі').slice().sort((a, b) => String(b.date).localeCompare(String(a.date)));
+/** Розсилки на ознайомлення з документами зберігаються в «Інструктажах» з видом «Ознайомлення». */
+const ACQ_TYPE = 'Ознайомлення';
+const isAcq = b => b && b.type === ACQ_TYPE;
+const briefs = () => all('Інструктажі').filter(b => !isAcq(b)).sort((a, b) => String(b.date).localeCompare(String(a.date)));
 const briefPeople = b => arr(b.participants).length ? arr(b.participants) : staff().filter(p => p.role !== 'відвідувач').map(p => p.id);
 const briefPass = (bid, pid) => all('ПроходженняІнструктажів').filter(x => x.briefingId === bid && x.personId === pid).sort((a, b) => num(b.ts) - num(a.ts))[0] || null;
 /** done — пройшли (працівник підтвердив зі свого пристрою); conf — проведення підтвердив керівник; wait — пройшли, але керівник ще не підтвердив. */
@@ -156,7 +159,7 @@ ROUTES.briefform = (id = 'new', fromId) => {
      <div class="grid2">${fInp('Дата інструктажу', 'date', d.date, { type: 'date', req: true })}${fInp('Пройти до', 'dueDate', d.dueDate, { type: 'date' })}</div>
      ${fArea('Зміст інструктажу', 'content', d.content, { rows: 8, ph: 'Основні вимоги, порядок дій, небезпечні фактори…' })}
      ${fInp('Посилання на матеріали (відео, презентація, Google Диск)', 'link', d.link, { type: 'url', ph: 'https://…' })}
-     ${fMulti('Документи до інструктажу', 'docIds', all('Документи').slice().sort((a, b) => String(a.kind).localeCompare(String(b.kind), 'uk') || String(a.title).localeCompare(String(b.title), 'uk')).map(x => [x.id, x.title]), d.docIds)}
+     ${fMulti('Документи до інструктажу (інструкції з охорони праці)', 'docIds', all('Документи').filter(isOHS).sort((a, b) => String(a.kind).localeCompare(String(b.kind), 'uk') || String(a.title).localeCompare(String(b.title), 'uk')).map(x => [x.id, x.title]), d.docIds)}
      ${fMulti('Учасники', 'participants', workers.map(p => [p.id, shortName(p.pib)]), pre)}
      ${fArea('Контрольні питання (необовʼязково)', 'questionsText', d.questionsText !== undefined ? d.questionsText : questionsText(briefQs(d)), { rows: 8, ph: 'Що робити при виявленні несправності електростанції?\n+ Зупинити роботу і повідомити керівника\n- Продовжити роботу\n- Відремонтувати самостійно\n\nНаступне питання?\n+ правильна відповідь\n- неправильна' })}
      <p class="small mute">Питання розділяйте порожнім рядком. Під питанням: «+ » — правильна відповідь, «- » — неправильна. Працівник підтверджує проходження лише після правильних відповідей на всі питання.</p>`;
@@ -172,4 +175,91 @@ FORMS.brief = async (d, id) => {
   delete row.questionsText;
   const saved = await save('Інструктажі', row);
   delete UI.draft['brief:' + id]; UI.dirty = false; savedMsg('Інструктаж збережено'); go('#/briefing/' + saved.id);
+};
+
+// ═════════ ОЗНАЙОМЛЕННЯ З ДОКУМЕНТАМИ ═════════
+const ACQ_LBL = { 'Робоча інструкція': 'Робочі інструкції', 'Посадова інструкція': 'Посадові інструкції', 'Положення про лабораторію': 'Положення', 'Інструкція ДІВ': 'Робота з ДІВ' };
+const ACQ_TTL = { 'Робоча інструкція': 'робочі інструкції', 'Посадова інструкція': 'посадові інструкції', 'Положення про лабораторію': 'положення про лабораторію', 'Інструкція ДІВ': 'інструкції з роботи з ДІВ' };
+const acqs = () => all('Інструктажі').filter(isAcq).sort((a, b) => String(b.date).localeCompare(String(a.date)));
+const acqDocs = b => arr(b.docIds).map(id => get('Документи', id)).filter(Boolean);
+const acqDone = (b, pid) => { const ds = acqDocs(b); return ds.length > 0 && ds.every(d => ackOf(d.id, pid)); };
+const acqStat = b => { const ppl = briefPeople(b); const done = ppl.filter(p => acqDone(b, p)).length; return { ppl, done, left: ppl.length - done }; };
+/** Розсилки, за якими працівнику ще треба ознайомитися. */
+const acqTodo = pid => acqs().filter(b => b.date <= today() && briefPeople(b).includes(pid) && !acqDone(b, pid));
+
+function acqItem(b) {
+  const lead = isLead(), s = acqStat(b), ds = acqDocs(b);
+  const mine = ME.personId && briefPeople(b).includes(ME.personId) ? acqDone(b, ME.personId) : undefined;
+  const st = lead ? badge(`${s.done}/${s.ppl.length}`, s.left ? (briefOverdue(b) ? 'bad' : 'warn') : 'ok')
+    : mine ? badge('✓ ознайомлений', 'ok') : mine === false ? badge(briefOverdue(b) ? 'прострочено' : 'потрібно ознайомитися', briefOverdue(b) ? 'bad' : 'warn') : '';
+  return `<a class="item" href="#/acqitem/${esc(b.id)}"><div class="row between"><b>${esc(b.title)}</b>${st}</div>
+    <span class="small mute">${esc(ACQ_LBL[b.note] || b.note || '')} · ${uaDate(b.date)}${b.dueDate ? ' · ознайомитися до ' + uaDate(b.dueDate) : ''} · документів: ${ds.length}</span>${lead ? `<span class="small">ознайомились ${s.done} з ${s.ppl.length}</span>` : ''}</a>`;
+}
+ROUTES.acq = () => {
+  if (isVisitor()) return denied();
+  let h = '<p class="small mute">Ознайомлення з робочими, посадовими інструкціями, положеннями та інструкціями з роботи з ДІВ. Інструкції з охорони праці — через <a href="#/brief">інструктажі</a>.</p>';
+  if (isLead()) {
+    h += `<div class="row gap"><a class="btn ghost" href="#/ackmatrix">📋 Журнал ознайомлення</a><a class="btn ghost" href="#/gen/ack">⬇ Журнал (.xlsx)</a></div>` + fab('#/acqform/new');
+    const list = acqs(), open = list.filter(b => acqStat(b).left), done = list.filter(b => !acqStat(b).left);
+    h += card('Тривають', open.length ? open.map(acqItem).join('') : empty('Усі ознайомилися'));
+    if (done.length) h += card('Завершені', done.map(acqItem).join(''));
+  } else {
+    const todo = acqTodo(ME.personId);
+    h += card('Потрібно ознайомитися', todo.length ? todo.map(acqItem).join('') : empty('Нових документів для ознайомлення немає'));
+    const past = acqs().filter(b => briefPeople(b).includes(ME.personId) && acqDone(b, ME.personId));
+    if (past.length) h += card('Ознайомлений(-а)', past.map(acqItem).join(''));
+  }
+  return page('Ознайомлення з документами', h, '#/menu');
+};
+ROUTES.acqitem = id => {
+  const b = get('Інструктажі', id);
+  if (!isAcq(b) || isVisitor()) return notFound();
+  const ds = acqDocs(b);
+  let h = `<div class="objhead"><h2>${esc(b.title)}</h2><p>${esc(ACQ_LBL[b.note] || b.note || '')} · ${uaDate(b.date)}${b.dueDate ? ' · ознайомитися до ' + uaDate(b.dueDate) : ''}</p></div>`;
+  if (b.content) h += card('', `<div class="brieftext pre">${esc(b.content)}</div>`);
+  const me = ME.personId && briefPeople(b).includes(ME.personId);
+  h += card('Документи · ' + ds.length, ds.map(d => { const a = ME.personId ? ackOf(d.id, ME.personId) : null;
+    return `<div class="item"><div class="row between"><b>${esc(d.title)}</b>${a ? badge('✓ ' + uaDate(a.date), 'ok') : me ? badge('не ознайомлений', 'warn') : ''}</div>
+      <span class="small mute">${esc(d.kind)}${d.version ? ' · ред. ' + esc(d.version) : ''}${d.date ? ' від ' + uaDate(d.date) : ''}</span>
+      <div class="row gap"><a class="btn small ${a || !me ? 'ghost' : 'primary'}" href="#/doc/${esc(d.id)}">📖 ${a || !me ? 'Відкрити' : 'Читати й ознайомитися'}</a></div></div>`; }).join('') + (ds.length ? '' : empty('Документи не вибрано')) +
+    (me && b.date > today() ? `<p class="mute">Ознайомлення стане доступним ${uaDate(b.date)}.</p>` : '') +
+    (me ? '<p class="small mute">Відкрийте кожен документ, дочитайте до кінця й підтвердіть ознайомлення. Ознайомлення з документом зараховується і в інших розсилках.</p>' : ''));
+  if (isLead()) {
+    const s = acqStat(b);
+    const rows = s.ppl.map(pid => { const n = ds.filter(d => ackOf(d.id, pid)).length; const full = n === ds.length && ds.length;
+      const last = ds.map(d => ackOf(d.id, pid)).filter(Boolean).map(a => a.date).sort().pop();
+      return `<div class="item"><div class="row between"><b>${esc(shortName(personName(pid)))}</b>${full ? badge('✓ ' + uaDate(last), 'ok') : badge(n + '/' + ds.length, briefOverdue(b) ? 'bad' : 'warn')}</div>${!full && n ? `<span class="small mute">не ознайомлений: ${ds.filter(d => !ackOf(d.id, pid)).map(d => esc(d.title)).join('; ')}</span>` : ''}</div>`; }).join('');
+    h += card(`Учасники · ознайомились ${s.done} з ${s.ppl.length}`, rows +
+      `<div class="row gap"><a class="btn ghost" href="#/acqform/${esc(b.id)}">Змінити</a><a class="btn ghost" href="#/acqform/new/${esc(b.id)}">Повторити для інших / нове на основі</a></div>`);
+  }
+  return page('Ознайомлення', h, '#/acq');
+};
+ROUTES.acqform = (id = 'new', fromId) => {
+  if (!isLead()) return denied();
+  const src = id !== 'new' ? get('Інструктажі', id) : null;
+  if (id !== 'new' && !isAcq(src)) return notFound();
+  const base = src || (fromId && isAcq(get('Інструктажі', fromId)) ? { ...get('Інструктажі', fromId), id: undefined, date: today(), participants: [] } : null);
+  const key = 'acq:' + id;
+  const d = UI.draft[key] || base || { note: ACK_KINDS[0], date: today(), dueDate: addDays(today(), 7), participants: [] };
+  const kind = ACK_KINDS.includes(d.note) ? d.note : ACK_KINDS[0];
+  const docs = all('Документи').filter(x => x.kind === kind).sort((a, b) => String(a.title).localeCompare(String(b.title), 'uk'));
+  const sel = d.docIds !== undefined ? arr(d.docIds) : docs.map(x => x.id);
+  const workers = staff().filter(p => p.role !== 'відвідувач');
+  const pre = arr(d.participants).length ? arr(d.participants) : (fromId ? workers.filter(p => !acqDone(get('Інструктажі', fromId), p.id)).map(p => p.id) : workers.map(p => p.id));
+  const body = fSel('Вид документа', 'note', ACK_KINDS.map(k => [k, ACQ_LBL[k]]), kind, { re: true, hint: 'у списку документів нижче — лише документи цього виду' }) +
+    fInp('Назва', 'title', d.title !== undefined ? d.title : 'Ознайомлення: ' + ACQ_TTL[kind], { req: true }) +
+    `<div class="grid2">${fInp('Дата', 'date', d.date, { type: 'date', req: true })}${fInp('Ознайомитися до', 'dueDate', d.dueDate, { type: 'date' })}</div>` +
+    (docs.length ? fMulti('Документи для ознайомлення · ' + ACQ_LBL[kind], 'docIds', docs.map(x => [x.id, x.title + (x.version ? ' (ред. ' + x.version + ')' : '')]), sel) : `<p class="warn">Документів виду «${esc(kind)}» ще немає — додайте їх у розділі <a href="#/docs">Інструкції</a>.</p>`) +
+    fMulti('Учасники', 'participants', workers.map(p => [p.id, shortName(p.pib)]), pre) +
+    fArea('Коментар для працівників', 'content', d.content, { rows: 3, ph: 'напр. нова редакція посадових інструкцій з 01.11' });
+  return page(src ? 'Ознайомлення' : 'Нове ознайомлення', form('acq', id, body, src ? { del: { t: 'Інструктажі', id, back: '#/acq' } } : {}), src ? '#/acqitem/' + id : '#/acq');
+};
+ONCHANGE.acq = (d, field) => { if (field === 'note') { const k = d.note; d.docIds = all('Документи').filter(x => x.kind === k).map(x => x.id); d.title = 'Ознайомлення: ' + (ACQ_TTL[k] || k); } };
+FORMS.acq = async (d, id) => {
+  if (!need(d, [['title', 'назва'], ['date', 'дата'], ['participants', 'учасники']])) return;
+  const ok = arr(d.docIds).map(x => get('Документи', x)).filter(x => x && x.kind === d.note);
+  if (!ok.length) return toast('Виберіть документи для ознайомлення');
+  const src = id !== 'new' ? get('Інструктажі', id) : {};
+  const saved = await save('Інструктажі', { ...src, ...d, docIds: ok.map(x => x.id), type: ACQ_TYPE, id: id !== 'new' ? id : undefined });
+  delete UI.draft['acq:' + id]; UI.dirty = false; savedMsg('Ознайомлення збережено'); go('#/acqitem/' + saved.id);
 };

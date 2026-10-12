@@ -1,7 +1,7 @@
 /* Портал ВЛНК — демо-дані (вигадані), лише для ознайомлення без сервера */
 'use strict';
 
-const DEMO_VER = '1.8.69'; // змінювати, коли змінюються демо-дані
+const DEMO_VER = '1.8.71'; // змінювати, коли змінюються демо-дані
 const DEMO_USER = { email: 'demo@vlnk.local', name: 'Гончаренко О.В. (демо)', personId: 'p1', role: 'керівник' };
 
 async function seedDemo() {
@@ -271,6 +271,7 @@ async function seedDemo() {
   add('Інструктажі', { id: 'br1', type: 'Повторний', title: 'Повторний інструктаж з охорони праці, IV квартал', date: plusDays(-5), dueDate: plusDays(5), conductorId: 'p1', content: 'Нагадування основних вимог інструкцій з ОП для дефектоскопістів і при роботі з переносними електростанціями.\n\n1. Перед початком робіт — огляд місця роботи, огородження зони радіографування, перевірка засобів захисту.\n2. Електростанцію встановлювати на рівній поверхні не ближче 5 м від траншеї; заправляти лише після зупинки й охолодження.\n3. Про всі несправності та небезпечні ситуації негайно повідомляти керівника робіт.', link: '', docIds: ['d1', 'd2'], participants: wrk, questions: JSON.stringify(qOP) });
   add('Інструктажі', { id: 'br2', type: 'Цільовий', title: 'Цільовий інструктаж: роботи в охоронній зоні діючого газопроводу', date: plusDays(-3), dueDate: plusDays(-1), conductorId: 'p1', content: 'Роботи виконуються за нарядом-допуском. Обовʼязкова присутність представника ЛВУМГ, контроль загазованості перед початком робіт, заборона відкритого вогню та куріння.', link: '', docIds: [], participants: [...comp[1], ...comp[2]].filter(x => x !== 'p3'), questions: '[]' });
   add('Інструктажі', { id: 'br3', type: 'Позаплановий', title: 'Позаплановий інструктаж: нова редакція інструкції для роботи з електростанціями', date: plusDays(-20), dueDate: plusDays(-13), conductorId: 'p1', content: 'Ознайомлення зі змінами в інструкції з ОП при роботі з переносними електростанціями.', link: '', docIds: ['d2'], participants: wrk, questions: '[]' });
+  add('Інструктажі', { id: 'aq1', type: 'Ознайомлення', note: 'Посадова інструкція', title: 'Ознайомлення: посадові інструкції', date: plusDays(-4), dueDate: plusDays(3), content: 'Нова редакція посадових інструкцій — прочитайте й підтвердіть ознайомлення.', link: '', docIds: ['d5'], participants: wrk, questions: '[]' });
   wrk.forEach((pid, i) => {
     const dv = i % 2 ? 'Android · Chrome · застосунок' : 'iPhone · Safari';
     add('ПроходженняІнструктажів', { id: 'bp3' + pid, briefingId: 'br3', personId: pid, date: plusDays(-18 + (i % 4)), time: '0' + (8 + i % 2) + ':' + z2(10 + i * 3), ts: i, score: '', device: dv, condBy: 'p1', condDate: plusDays(-14), condTime: '16:05', condDevice: 'Android · Chrome' });
