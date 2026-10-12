@@ -1237,19 +1237,57 @@ const KIT_POS = [
   ['pt', 'Кольорова дефектоскопія (набір PT)', 1, 'компл.', null],
   ['sign', 'Знаки «Радіаційно небезпечна зона»', 1, 'компл.', /знак.*радіац/i]
 ];
+/** Витратні матеріали та дрібне приладдя — вносяться кількістю вручну, у потребу обладнання не потрапляють. */
+const KIT_CONS = ['c1020', 'c1030', 'c1040', 'c3040', 'tank', 'film', 'chem', 'pt', 'sign'];
 const kitJson = k => { try { return JSON.parse(setting(k, '{}')) || {}; } catch (e) { return {}; } };
 const kitNorm = () => { const n = kitJson('kitnorm'); return Object.fromEntries(KIT_POS.map(p => [p[0], n[p[0]] !== undefined && n[p[0]] !== '' ? num(n[p[0]]) : p[2]])); };
-/** Кількість за обліком: електростанції — закріплені за авто, решта — обладнання в авто за назвою. */
-function kitAuto(car) {
-  const inCar = all('Обладнання').filter(e => e.holderType === 'авто' && e.holderId === car.id && e.condition !== 'списано');
-  const out = { gen: all('Генератори').filter(g => g.carId === car.id).length };
-  KIT_POS.forEach(p => { if (p[4]) out[p[0]] = inCar.filter(e => p[4].test(String(e.name || '') + ' ' + String(e.note || ''))).length; });
+/** Позиція комплектації для одиниці обладнання: явне призначення керівником, інакше — за назвою. */
+function kitPosOf(e) {
+  const m = kitJson('kitmap')[e.id];
+  if (m !== undefined) return m;
+  const p = KIT_POS.find(x => x[4] && x[4].test(String(e.name || '') + ' ' + String(e.note || '')));
+  return p ? p[0] : '';
+}
+const eqUsable = e => !['списано', 'несправне'].includes(e.condition);
+/** Обладнання в авто за позиціями. */
+function kitEquip(car) {
+  const out = {}; KIT_POS.forEach(p => (out[p[0]] = []));
+  const map = kitJson('kitmap'), norm = kitNorm();
+  all('Обладнання').filter(e => e.holderType === 'авто' && e.holderId === car.id && e.condition !== 'списано').forEach(e => {
+    let k = kitPosOf(e);
+    // другий рентгенапарат без явного призначення — у позицію «більше Ø325»
+    if (k === 'xr325' && map[e.id] === undefined && out.xr325.length >= norm.xr325) k = 'xr325p';
+    if (k && out[k]) out[k].push(e);
+  });
   return out;
 }
-/** Фактична комплектація авто: внесене вручну, а якщо не внесено — за обліком. */
+function kitAuto(car) {
+  const eq = kitEquip(car), out = {};
+  KIT_POS.forEach(p => (out[p[0]] = eq[p[0]].length));
+  out.gen += all('Генератори').filter(g => g.carId === car.id).length;
+  return out;
+}
+/** Фактична комплектація: обладнання в авто (за обліком і передачами); якщо його немає — внесене вручну (витратні матеріали). */
 function kitHave(car) {
   const man = kitJson('carkit:' + car.id), auto = kitAuto(car);
-  return Object.fromEntries(KIT_POS.map(p => [p[0], man[p[0]] !== undefined && man[p[0]] !== '' ? { v: num(man[p[0]]), src: 'm' } : { v: num(auto[p[0]]), src: 'a' }]));
+  return Object.fromEntries(KIT_POS.map(p => [p[0], auto[p[0]] > 0 || man[p[0]] === undefined || man[p[0]] === '' ? { v: num(auto[p[0]]), src: 'a' } : { v: num(man[p[0]]), src: 'm' }]));
+}
+/** Нестача по авто: позиції, де є менше норми; кандидати зі складу; де ще є (у працівників, в інших авто). */
+function kitGaps(car) {
+  const norm = kitNorm(), hv = kitHave(car);
+  const free = all('Обладнання').filter(e => (!e.holderType || e.holderType === 'склад') && eqUsable(e) && !eqPending(e.id));
+  return KIT_POS.filter(p => norm[p[0]] > hv[p[0]].v).map(p => {
+    const k = p[0], lack = norm[k] - hv[k].v;
+    const stock = free.filter(e => kitPosOf(e) === k || (k === 'xr325p' && kitPosOf(e) === 'xr325' && kitJson('kitmap')[e.id] === undefined));
+    const elsewhere = all('Обладнання').filter(e => e.holderType === 'працівник' && kitPosOf(e) === k);
+    return { p, k, lack, stock, elsewhere };
+  });
+}
+/** Потреба: чого бракує в авто і немає на складі. */
+function kitNeeds() {
+  const out = [];
+  for (const c of all('Авто')) kitGaps(c).forEach(g => { const n = g.lack - g.stock.length; if (n > 0 && !KIT_CONS.includes(g.k)) out.push({ car: c, p: g.p, n }); });
+  return out;
 }
 async function saveSetting(key, value) {
   const r = all('Налаштування').find(x => x.key === key);
@@ -1257,30 +1295,59 @@ async function saveSetting(key, value) {
 }
 ROUTES.kit = () => {
   if (isVisitor()) return denied();
-  const norm = kitNorm();
-  const need = KIT_POS.filter(p => norm[p[0]] > 0);
-  let h = `<p class="small mute">Позиції комплектації автомобіля бригади. Кількість — внесена вручну (✎) або за обліком обладнання в авто і закріплених електростанцій.</p>`;
-  if (isLead()) h += `<div class="row gap"><a class="btn ghost" href="#/kitnorm">⚙ Норма комплектації</a></div>`;
-  for (const c of all('Авто')) {
-    const hv = kitHave(c);
-    const ok = need.filter(p => hv[p[0]].v >= norm[p[0]]).length;
-    const rows = KIT_POS.map(p => { const x = hv[p[0]], n = norm[p[0]]; const st = !n ? '<span class="mute">—</span>' : x.v >= n ? '<span class="ok">✓</span>' : '<span class="bad">✗</span>';
-      return [esc(p[1]), n ? fmtN(n) + ' ' + p[3] : '—', fmtN(x.v) + (x.src === 'm' ? ' <span class="mute small">✎</span>' : ''), st]; });
-    h += card('🚐 ' + esc(c.name) + (c.plate ? ' · ' + esc(c.plate) : ''),
-      `<p class="small">Укомплектовано: <b>${ok} з ${need.length}</b> позицій</p>${bar(need.length ? ok / need.length * 100 : 0)}` +
-      `<details${ok < need.length ? ' open' : ''}><summary class="small">Позиції</summary>${table(['Позиція', 'Норма', 'Є', ''], rows, 'num first')}</details>` +
-      (isLead() ? `<a class="btn ghost small" href="#/kitcar/${esc(c.id)}">✎ Внести комплектацію</a>` : ''));
-  }
-  if (!all('Авто').length) h += empty('Автомобілі не додані');
+  const cars = all('Авто');
+  if (!cars.length) return page('Комплектація авто', empty('Автомобілі не додані'), '#/equip');
+  const norm = kitNorm(), need = KIT_POS.filter(p => norm[p[0]] > 0);
+  const c = cars.find(x => x.id === UI.kcar) || cars[0];
+  let h = seg('kcar', cars.map(x => { const hv = kitHave(x); const ok = need.filter(p => hv[p[0]].v >= norm[p[0]]).length; return [x.id, esc(x.name) + (x.plate ? ' · ' + esc(x.plate) : '') + ` <small>${ok}/${need.length}</small>`]; }), c.id).replace('class="seg"', 'class="seg wrap"');
+  if (isLead()) h += `<div class="row gap"><a class="btn ghost small" href="#/kitnorm">⚙ Норма</a><a class="btn ghost small" href="#/kitcar/${esc(c.id)}">✎ Витратні матеріали</a></div>`;
+  const hv = kitHave(c), eq = kitEquip(c), gens = all('Генератори').filter(g => g.carId === c.id);
+  const ok = need.filter(p => hv[p[0]].v >= norm[p[0]]).length;
+  const rows = KIT_POS.map(p => {
+    const k = p[0], x = hv[k], n = norm[k], full = !n || x.v >= n;
+    const items = (k === 'gen' ? gens.map(g => `<li>⚡ ${esc(g.name)}${g.invNo ? ' · інв. ' + esc(g.invNo) : ''}</li>`) : []).concat(eq[k].map(e => `<li><a href="#/equipment/${esc(e.id)}">${esc(e.name)}</a>${e.invNo ? ' · інв. ' + esc(e.invNo) : ''}${e.condition && e.condition !== 'справне' ? ' ' + badge(esc(e.condition), 'warn') : ''}${isLead() ? ` <a class="mute" href="#/kitmap/${esc(e.id)}" title="Змінити позицію">↔</a>` : ''}</li>`));
+    return `<div class="kitrow${full ? '' : ' miss'}"><div class="row between"><span>${full ? (n ? '<span class="ok">✓</span>' : '<span class="mute">—</span>') : '<span class="bad">✗</span>'} <b>${esc(p[1])}</b></span><span class="small">${fmtN(x.v)}${n ? ' / ' + fmtN(n) : ''} ${p[3]}${x.src === 'm' ? ' ✎' : ''}</span></div>${items.length ? `<ul class="plain small">${items.join('')}</ul>` : ''}</div>`;
+  }).join('');
+  h += card('🚐 ' + esc(c.name) + (c.plate ? ' · ' + esc(c.plate) : ''), `<p class="small">Укомплектовано: <b>${ok} з ${need.length}</b> позицій</p>${bar(need.length ? ok / need.length * 100 : 0)}${rows}
+    <p class="small mute">Позиції заповнюються обладнанням, що числиться в авто після передач (акти переміщення); ✎ — внесено вручну (витратні матеріали). ↔ — віднести обладнання до іншої позиції.</p>`);
+  const gaps = kitGaps(c);
+  if (gaps.length) h += card('Доукомплектування зі складу', gaps.map(g => `<div class="item"><div class="row between"><b>${esc(g.p[1])}</b>${badge('бракує ' + fmtN(g.lack) + ' ' + g.p[3], 'warn')}</div>` +
+    (g.stock.length ? g.stock.slice(0, Math.max(g.lack, 3)).map(e => `<div class="row between small"><span>📦 ${esc(e.name)}${e.invNo ? ' · інв. ' + esc(e.invNo) : ''}${e.condition !== 'справне' ? ' · ' + esc(e.condition) : ''}</span>${canReport() ? `<button type="button" class="btn small primary" data-act="kitsug" data-id="${esc(e.id)}" data-car="${esc(c.id)}" data-k="${g.k}">Передати в авто</button>` : ''}</div>`).join('')
+      : KIT_CONS.includes(g.k) ? `<span class="small mute">Витратні матеріали — після поповнення внесіть кількість (✎ Витратні матеріали)${g.stock.length ? '' : ''}</span>` : `<span class="small bad">На складі немає — потреба${g.elsewhere.length ? '; є у працівників: ' + g.elsewhere.map(e => esc(e.name) + ' (' + esc(shortName(personName(e.holderId) || e.holderName || '')) + ')').join(', ') : ''}</span>`) + '</div>').join('') +
+    '<p class="small mute">«Передати в авто» відкриває передачу обладнання зі складу з актом і фото — як звичайне переміщення.</p>');
+  const needs = kitNeeds();
+  if (needs.length) h += card('⚠ Потреба в обладнанні (немає на складі)', `<ul class="plain small">${needs.map(x => `<li><b>${esc(x.p[1])}</b> — ${fmtN(x.n)} ${x.p[3]} · ${esc(x.car.name)}</li>`).join('')}</ul>` +
+    `<p class="small"><b>Разом:</b> ${Object.values(needs.reduce((m, x) => { (m[x.p[0]] = m[x.p[0]] || { t: x.p[1], u: x.p[3], n: 0 }).n += x.n; return m; }, {})).map(v => esc(v.t) + ' — ' + fmtN(v.n) + ' ' + v.u).join('; ')}</p>` +
+    (navigator.share || navigator.clipboard ? `<button type="button" class="btn ghost small" data-act="kitneedcopy">📋 Скопіювати потребу</button>` : ''));
   const req = all('Комплектація');
   if (req.length) h += card('Додатково: норми за методами НК', `<details><summary class="small">Позиції за методами (${req.length})</summary><ul class="plain small">${req.map(r => `<li>${esc(normM(r.method))} · ${esc(r.item)} — ${num(r.qty) || 1}${isLead() ? ` <a href="#" data-act="del" data-t="Комплектація" data-id="${esc(r.id)}" data-back="#/kit">×</a>` : ''}</li>`).join('')}</ul></details>`);
   return page('Комплектація авто', h, '#/equip');
+};
+ACTS.kitsug = async d => {
+  const e = get('Обладнання', d.id); if (!e) return;
+  if (isLead() && kitPosOf(e) !== d.k) { const m = kitJson('kitmap'); m[e.id] = d.k; await saveSetting('kitmap', JSON.stringify(m)); }
+  const pos = (KIT_POS.find(p => p[0] === d.k) || [])[1] || '';
+  UI.draft['move:' + e.id] = { place: 'авто:' + d.car, toPerson: '', otherName: '', date: today(), condition: e.condition || 'справне', note: 'Доукомплектування авто: ' + pos };
+  go('#/moveform/' + e.id);
+};
+ACTS.kitneedcopy = async () => {
+  const t = 'Потреба в обладнанні для комплектації автомобілів (' + uaDate(today()) + '):\n' + kitNeeds().map(x => `— ${x.p[1]}: ${fmtN(x.n)} ${x.p[3]} (${x.car.name}${x.car.plate ? ', ' + x.car.plate : ''})`).join('\n');
+  try { if (navigator.share) await navigator.share({ title: 'Потреба в обладнанні', text: t }); else { await navigator.clipboard.writeText(t); toast('Скопійовано'); } } catch (e) { if (e.name !== 'AbortError') toast(e.message); }
+};
+ROUTES.kitmap = id => {
+  if (!isLead()) return denied();
+  const e = get('Обладнання', id); if (!e) return notFound();
+  const body = `<div class="note">${esc(e.name)} · інв. ${esc(e.invNo || '—')}</div>` + fSel('Позиція комплектації авто', 'pos', [['', '— не входить до комплектації —'], ...KIT_POS.map(p => [p[0], p[1]])], kitPosOf(e));
+  return page('Позиція комплектації', form('kitmap', id, body), '#/kit');
+};
+FORMS.kitmap = async (d, id) => {
+  const m = kitJson('kitmap'); m[id] = d.pos || ''; await saveSetting('kitmap', JSON.stringify(m)); UI.dirty = false; savedMsg('Збережено'); go('#/kit');
 };
 ROUTES.kitcar = id => {
   if (!isLead()) return denied();
   const c = get('Авто', id); if (!c) return notFound();
   const hv = kitHave(c), auto = kitAuto(c), norm = kitNorm();
-  const body = `<p class="small mute">Вкажіть фактичну кількість. Порожнє поле — береться з обліку обладнання (зараз показано в підказці).</p>` +
+  const body = `<p class="small mute">Для позицій, яких немає в обліку обладнання (касети, плівка, реактиви, знаки, ванночки тощо), вкажіть кількість. Якщо обладнання позиції числиться в авто — береться облік.</p>` +
     KIT_POS.map(p => fNum(p[1] + ', ' + p[3], 'k_' + p[0], hv[p[0]].src === 'm' ? hv[p[0]].v : '', { hint: `норма ${fmtN(norm[p[0]])} · за обліком ${fmtN(num(auto[p[0]]))}` })).join('');
   return page('Комплектація · ' + c.name, form('kitcar', id, body), '#/kit');
 };

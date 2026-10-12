@@ -478,6 +478,8 @@ function alerts() {
     const bo = briefs().filter(b => briefOverdue(b) && briefStat(b).left);
     const bw = briefs().reduce((s, b) => s + briefStat(b).wait, 0);
     if (bw) out.push({ cls: 'warn', href: '#/brief', text: `Інструктажі: чекають вашого підтвердження проведення — ${bw}` });
+    const kn = kitNeeds();
+    if (kn.length) { const byP = {}; kn.forEach(x => (byP[x.p[1]] = (byP[x.p[1]] || 0) + x.n)); out.push({ cls: 'warn', href: '#/kit', text: `Потреба в обладнанні для комплектації авто (на складі немає): ${Object.entries(byP).map(([t, n]) => esc(t) + ' — ' + fmtN(n)).join('; ')}` }); }
     const ao = acqs().filter(b => briefOverdue(b) && acqStat(b).left);
     if (ao.length) out.push({ cls: 'bad', href: '#/acq', text: `Не ознайомились у строк: ${ao.map(b => esc(b.title) + ' (' + acqStat(b).left + ')').join('; ')}` });
     if (bo.length) out.push({ cls: 'bad', href: '#/brief', text: `Інструктажі не пройдені в строк: ${bo.map(b => esc(b.title) + ' (' + briefStat(b).left + ')').join('; ')}` });
