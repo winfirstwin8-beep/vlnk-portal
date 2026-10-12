@@ -1,7 +1,7 @@
 /* Портал ВЛНК — демо-дані (вигадані), лише для ознайомлення без сервера */
 'use strict';
 
-const DEMO_VER = '1.8.66'; // змінювати, коли змінюються демо-дані
+const DEMO_VER = '1.8.68'; // змінювати, коли змінюються демо-дані
 const DEMO_USER = { email: 'demo@vlnk.local', name: 'Гончаренко О.В. (демо)', personId: 'p1', role: 'керівник' };
 
 async function seedDemo() {
@@ -105,7 +105,7 @@ async function seedDemo() {
   objs.forEach(([id, short, name, lvumg, icp, dia, len, film, dev, fix, settl], i) => {
     const monthly = {};
     for (let k = -2; k <= 3; k++) monthly[addMonths(m, k)] = Math.round(len / 8);
-    add('Обʼєкти', { id, short, name, lvumg, icp, diameter: dia, length: len, plan2026: Math.round(len * 0.6), plan2027: Math.round(len * 0.4), start2026: Y + '-0' + (3 + i % 6) + '-01', filmPlan: film, devPlan: dev, fixPlan: fix, settlement: settl, site: 'Лінійна частина', distBase: String(180 + i * 70), distObj: i % 3 === 2 ? '' : String(15 + i * 5), travelTime: i % 3 === 2 ? '' : (2 + i % 6) + ' год. ' + String((i * 10) % 60).padStart(2, '0') + ' хв.', contact: ['Петренко Іван Іванович', 'Коваленко Олег Петрович', 'Шевчук Андрій Миколайович'][i % 3], contactPos: ['Начальник дільниці ЛВУМГ', 'Виконавець робіт', 'Інженер з технагляду'][i % 3], soOrder: '4' + (1000000 + i * 7919), soSubOrder: '2' + (500000 + i * 313), hotel: HOTELS[i % HOTELS.length], lat: (48.3 + i * 0.37).toFixed(4), lng: (25.5 + i * 1.3).toFixed(4), monthly: JSON.stringify(monthly), status: 'в роботі', methods: ['RT', 'VT-W', 'UT-W', 'UTT'], workTypes: ['Монтажна колона', 'Ізоляційна колона'] });
+    add('Обʼєкти', { id, short, name, lvumg, icp, diameter: dia, length: len, plan2026: Math.round(len * 0.6), plan2027: Math.round(len * 0.4), start2026: Y + '-0' + (3 + i % 6) + '-01', filmPlan: film, devPlan: dev, fixPlan: fix, settlement: settl, site: 'Лінійна частина', distBase: String(180 + i * 70), distObj: i % 3 === 2 ? '' : String(15 + i * 5), travelTime: i % 3 === 2 ? '' : (2 + i % 6) + ' год. ' + String((i * 10) % 60).padStart(2, '0') + ' хв.', contact: ['Петренко Іван Іванович', 'Коваленко Олег Петрович', 'Шевчук Андрій Миколайович'][i % 3], contactPos: ['Начальник дільниці ЛВУМГ', 'Виконавець робіт', 'Інженер з технагляду'][i % 3], soOrder: '4' + (1000000 + i * 7919), soSubOrder: '2' + (500000 + i * 313), hotel: HOTELS[i % HOTELS.length], lat: (48.3 + i * 0.37).toFixed(4), lng: (25.5 + i * 1.3).toFixed(4), monthly: JSON.stringify(monthly), status: ['в роботі', 'в роботі', 'заплановано', 'виконано', 'відкладено', 'в роботі', 'відмінено'][i % 7], methods: ['RT', 'VT-W', 'UT-W', 'UTT'], workTypes: ['Монтажна колона', 'Ізоляційна колона'] });
   });
 
   // відповідальні від замовника (роль «відвідувач» — лише перегляд)

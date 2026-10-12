@@ -287,16 +287,21 @@ ROUTES.objects = () => {
   if (UI.oact === '1') list = list.filter(o => act.has(o.id));
   if (UI.oact === 'a') list = list.filter(o => actv.has(o.id));
   if (UI.oact === 'rt') list = list.filter(o => rtSet.has(o.id));
+  const ost = UI.ost || '';
+  const stCnt = s => all('Обʼєкти').filter(o => s === '-' ? !o.status : o.status === s).length;
+  if (ost) list = list.filter(o => ost === '-' ? !o.status : o.status === ost);
   list.sort((a, b) => (act.has(b.id) ? 1 : 0) - (act.has(a.id) ? 1 : 0));
   let h = `<input class="search" type="search" placeholder="Пошук: назва, ICP, замовлення…" value="${esc(UI.oq || '')}" data-set="oq">
     <div class="filters">${fSel('ЛВУМГ', 'x', lvs, lv, { none: 'Усі ЛВУМГ' }).replace('name="x"', 'data-set="olv"')}</div>
     ${seg('oact', [['', 'Усі ' + all('Обʼєкти').length], ['1', 'В роботі цього місяця · ' + all('Обʼєкти').filter(o => act.has(o.id)).length], ['a', 'Активні · ' + all('Обʼєкти').filter(o => actv.has(o.id)).length], ['rt', 'RT · ' + all('Обʼєкти').filter(o => rtSet.has(o.id)).length]], UI.oact || '').replace('class="seg"', 'class="seg wrap"')}
-    ${UI.oact === 'a' ? `<p class="small mute">Активні — обʼєкти із завданнями (крім перенесених) або звітами за ${Y} рік.</p>` : UI.oact === 'rt' ? '<p class="small mute">Обʼєкти, де за звітами проводився рентгенконтроль (RT).</p>' : ''}`;
+    ${UI.oact === 'a' ? `<p class="small mute">Активні — обʼєкти із завданнями (крім перенесених) або звітами за ${Y} рік.</p>` : UI.oact === 'rt' ? '<p class="small mute">Обʼєкти, де за звітами проводився рентгенконтроль (RT).</p>' : ''}
+    <p class="small mute" style="margin:6px 0 2px">Статус обʼєкта</p>
+    ${seg('ost', [['', 'Будь-який'], ...OBJ_STATUS.map(s => [s, s + ' · ' + stCnt(s)]), ...(stCnt('-') ? [['-', 'без статусу · ' + stCnt('-')]] : [])], ost).replace('class="seg"', 'class="seg wrap"')}`;
   if (isLead()) h += fab('#/objform/new');
   h += list.slice(0, UI.limit).map(o => {
     const len = num(o.length); const f = facts[o.id];
     return `<a class="item" href="#/object/${esc(o.id)}">
-      <div class="row between"><b>${esc(o.short || o.name)}</b><span>${rtSet.has(o.id) ? badge('RT', 'ok') + ' ' : ''}${act.has(o.id) ? badge('в роботі', 'pri') : (o.status ? badge(esc(o.status)) : '')}</span></div>
+      <div class="row between"><b>${esc(o.short || o.name)}</b><span>${rtSet.has(o.id) ? badge('RT', 'ok') + ' ' : ''}${o.status ? objStBadge(o.status) : act.has(o.id) ? badge('в роботі', 'pri') : ''}</span></div>
       <span class="small mute clamp">${esc(o.name || '')}</span>
       <span class="small">${o.lvumg ? esc(o.lvumg) + ' ЛВУМГ · ' : ''}${o.diameter ? 'Ø' + esc(o.diameter) + ' · ' : ''}${len ? fmtN(len) + ' м' : ''}</span>
       ${objMeta(o)}
@@ -332,7 +337,7 @@ ROUTES.tobj = tid => {
   const coords = num(o.lat) && num(o.lng) ? `<a href="https://maps.google.com/?q=${num(o.lat)},${num(o.lng)}" target="_blank" rel="noopener">${num(o.lat)}, ${num(o.lng)} ↗</a>` : '';
   let h = `<div class="objhead"><h2>${esc(o.short || '')}</h2><p>${esc(o.name || '')}</p></div>`;
   h += card('Паспорт обʼєкта', kv([
-    ['Статус', esc(o.status)], ['ЛВУМГ', esc(o.lvumg)], ['Промисловий майданчик', esc(o.site)], ['Населений пункт', esc(o.settlement)],
+    ['Статус', objStBadge(o.status)], ['ЛВУМГ', esc(o.lvumg)], ['Промисловий майданчик', esc(o.site)], ['Населений пункт', esc(o.settlement)],
     ['Відповідальний від замовника', respText(o)], ['Посада відповідального', esc(o.contactPos || (objResp(o) || {}).posada || '')], ['Табельний № відповідального', esc(respTab(o)) || (o.contact ? '<span class="mute">—</span>' : '')], ['Дорога', [o.distBase ? 'від бази ' + esc(o.distBase) + ' км' : '', o.distObj ? 'до обʼєкта ' + esc(o.distObj) + ' км' : '', o.travelTime ? 'у дорозі ' + esc(o.travelTime) : ''].filter(Boolean).join(' · ')], ['Координати', coords],
     ['СО/ТОРО замовлення', esc(o.soOrder)], ['СО/ТОРО підзамовлення', esc(o.soSubOrder)], ['№ ICP', esc(o.icp)], ['Пропонований готель', esc(o.hotel)],
     ['Діаметр', o.diameter ? 'Ø ' + esc(o.diameter) + ' мм' : ''], ['Довжина ділянок ремонту', len ? fmtN(len) + ' м' : ''],
@@ -368,12 +373,13 @@ ROUTES.object = id => {
   const coords = num(o.lat) && num(o.lng) ? `<a href="https://maps.google.com/?q=${num(o.lat)},${num(o.lng)}" target="_blank" rel="noopener">${num(o.lat)}, ${num(o.lng)} ↗</a>` : '';
   let h = `<div class="objhead"><h2>${esc(o.short || '')}</h2><p>${esc(o.name || '')}</p></div>`;
   h += card('Паспорт обʼєкта', kv([
-    ['Статус', esc(o.status)], ['ЛВУМГ', esc(o.lvumg)], ['Промисловий майданчик', esc(o.site)], ['Населений пункт', esc(o.settlement)],
+    ['Статус', objStBadge(o.status)], ['ЛВУМГ', esc(o.lvumg)], ['Промисловий майданчик', esc(o.site)], ['Населений пункт', esc(o.settlement)],
     ['Відповідальний від замовника', respText(o)], ['Посада відповідального', esc(o.contactPos || (objResp(o) || {}).posada || '')], ['Автомобіль', objCarText(o)], ['Дорога', [o.distBase ? 'від бази ' + esc(o.distBase) + ' км' : '', o.distObj ? 'до обʼєкта ' + esc(o.distObj) + ' км' : '', o.travelTime ? 'у дорозі ' + esc(o.travelTime) : ''].filter(Boolean).join(' · ')], ['Координати', coords],
     ['СО/ТОРО замовлення', esc(o.soOrder)], ['СО/ТОРО підзамовлення', esc(o.soSubOrder)], ['ICP', esc(o.icp)], ['Пропонований готель', esc(o.hotel)],
     ['Діаметр', o.diameter ? 'Ø ' + esc(o.diameter) + ' мм' : ''], ['Довжина ділянок ремонту', len ? fmtN(len) + ' м' : ''],
     ['Види робіт', esc(arr(o.workTypes).join(', '))], ['Методи НК', esc(methodsOf(o.methods).join(', '))], ['Примітка', esc(o.note)]
   ]) + (isLead() ? `<a class="btn ghost" href="#/objform/${esc(id)}">Редагувати</a>` : ''));
+  if (isLead()) h += card('Статус обʼєкта', `<div class="seg wrap">${OBJ_STATUS.map(st => `<button type="button" class="${o.status === st ? 'on' : ''}" data-act="objst" data-id="${esc(id)}" data-v="${esc(st)}">${esc(st)}</button>`).join('')}</div><p class="small mute">Натисніть, щоб змінити статус.</p>`);
 
   h += card('Виконання', kpis([...METHODS.map((m, i) => [mHead(m), mVals(s)[i]]), ['люд-год', fmtN(s.manH)], ['днів', s.days.size]]) +
     '<p class="small mute">Облік виконання: RT, VT-W, UT-W, PT, UTT, HB — у стиках; VT-S, UT-S — у дм².</p>');
@@ -420,7 +426,7 @@ ROUTES.objform = (id = 'new') => {
   if (id !== 'new' && !src) return notFound();
   const d = UI.draft['obj:' + id] || src || {};
   const body = fInp('Коротка назва', 'short', d.short, { req: true }) + fArea('Повна назва обʼєкта', 'name', d.name, { rows: 3 }) +
-    `<div class="grid2">${fInp('Статус', 'status', d.status)}${fInp('ЛВУМГ', 'lvumg', d.lvumg)}</div>
+    `<div class="grid2">${fSel('Статус', 'status', OBJ_STATUS.includes(d.status) || !d.status ? OBJ_STATUS : [...OBJ_STATUS, d.status], d.status || (id === 'new' ? 'заплановано' : ''), { none: '— не вказано' })}${fInp('ЛВУМГ', 'lvumg', d.lvumg)}</div>
      ${fInp('Промисловий майданчик', 'site', d.site)}
      ${fInp('Пропонований готель', 'hotel', d.hotel, { ph: 'назва, адреса, телефон' })}
      ${fInp('Населений пункт', 'settlement', d.settlement)}
@@ -439,6 +445,12 @@ ROUTES.objform = (id = 'new') => {
      ${fMulti('Методи НК', 'methods', METHODS, methodsOf(d.methods))}${fMulti('Види робіт', 'workTypes', WORK_TYPES, d.workTypes)}
      ${fArea('Примітка', 'note', d.note, { rows: 2 })}`;
   return page(id === 'new' ? 'Новий обʼєкт' : 'Редагування обʼєкта', form('obj', id, body, src ? { del: { t: 'Обʼєкти', id, back: '#/objects' } } : {}), src ? '#/object/' + id : '#/objects');
+};
+ACTS.objst = async d => {
+  if (!isLead()) return;
+  const o = get('Обʼєкти', d.id); if (!o || o.status === d.v) return;
+  await save('Обʼєкти', { ...o, status: d.v });
+  savedMsg('Статус: ' + d.v); render();
 };
 FORMS.obj = async (d, id) => {
   if (!need(d, [['short', 'коротка назва']])) return;
