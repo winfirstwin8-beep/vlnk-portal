@@ -22,7 +22,8 @@ const GEN_TYPES = [
   ['vac', 'Графік відпусток (з підписами про ознайомлення)'],
   ['ppecard', 'Особова картка обліку ЗІЗ'],
   ['ppeneed', 'Заявка (потреба) на ЗІЗ'],
-  ['brief', 'Журнал реєстрації інструктажів (онлайн-підтвердження)']
+  ['brief', 'Журнал реєстрації інструктажів (онлайн-підтвердження)'],
+  ['ack', 'Журнал ознайомлення з документами (робочі, посадові, положення, ДІВ)']
 ];
 
 // ───────── екран ─────────
@@ -32,7 +33,8 @@ ROUTES.gen = (type, objectId) => {
   if (!UI.gen) UI.gen = { type: 'tabel', from: m + '-01', to: monthEnd(m), brigade: '1', objectId: '' };
   if (type) { UI.gen.type = type; UI.gen.objectId = objectId || ''; location.replace('#/gen'); }
   const g = UI.gen;
-  const body = fSel('Документ', 'type', GEN_TYPES, g.type, { re: true }) + (g.type === 'vac'
+  const body = fSel('Документ', 'type', GEN_TYPES, g.type, { re: true }) + (g.type === 'ack'
+    ? fSel('Вид документів', 'kind', ACK_KINDS, g.kind, { none: 'Усі (робочі, посадові, положення, ДІВ)' }) : g.type === 'vac'
     ? fSel('Рік', 'year', vacYears(), g.year || today().slice(0, 4)) : g.type === 'ppecard'
     ? fSel('Працівник', 'personId', staffOpts(), g.personId, { none: 'Усі працівники (окремий аркуш на кожного)' }) : g.type === 'ppeneed'
     ? fInp('Потреба до дати', 'to', g.to && g.to > today() ? g.to : addDays(today(), 90), { type: 'date' }) :
@@ -50,9 +52,10 @@ ROUTES.gen = (type, objectId) => {
     ppeneed: 'Позиції, що ще не видавались або чий строк носіння спливає до вказаної дати, згруповані за розміром.',
     mat: 'Витрата за нормами на стик для кожного діаметра (або фактична, якщо її вписали у звіті), з розбивкою по діаметрах і протоколом по днях.',
     brief: 'Інструктажі з датою в межах періоду: кожен учасник окремим рядком, дата і час онлайн-підтвердження, результат контрольних питань.',
+    ack: 'Чинні документи з обовʼязковим ознайомленням: кожен працівник окремим рядком, дата онлайн-ознайомлення з актуальною редакцією і графа для підпису. Інструкції з охорони праці — у журналі інструктажів.',
     vac: 'Частини відпусток (план і факт), облік днів, розбивка по місяцях і графа для підпису про ознайомлення.'
   }[g.type];
-  const periods = ['vac', 'ppecard', 'ppeneed', 'brief'].includes(g.type) ? '' : genTaskPeriods(ym(g.from || today()), g.brigade, g.objectId);
+  const periods = ['vac', 'ppecard', 'ppeneed', 'brief', 'ack'].includes(g.type) ? '' : genTaskPeriods(ym(g.from || today()), g.brigade, g.objectId);
   return page('Формування документів', `<form class="form" data-form="gen" data-id="gen">${body}<p class="small mute">${hint}</p>
     <div class="form-actions"><button class="btn primary" type="submit">Сформувати .xlsx</button></div></form><div id="genres"></div>` + periods, '#/menu');
 };
@@ -91,7 +94,7 @@ ACTS.genper = d => {
 };
 FORMS.gen = async d => {
   Object.assign(UI.gen, d);
-  if (!['vac', 'ppecard', 'ppeneed'].includes(d.type) && (!d.from || !d.to || d.to < d.from)) return toast('Перевірте період');
+  if (!['vac', 'ppecard', 'ppeneed', 'ack'].includes(d.type) && (!d.from || !d.to || d.to < d.from)) return toast('Перевірте період');
   const out = $('#genres');
   out.innerHTML = `<div class="card"><p>Формування…</p></div>`;
   try {
@@ -427,6 +430,29 @@ DOCS.brief = p => {
     rows.length ? rows : [['', '', '', 'інструктажів за період немає', '', '', '', '', '', '', '', '']], { left: [3, 4, 5, 6, 7], size: 9, hh: 44 });
   signs(ws, r, C, head());
   return { wb, name: fname('Журнал_інструктажів', p.from, p.to) };
+};
+
+DOCS.ack = p => {
+  const docs = all('Документи').filter(d => needAck(d) && !isND(d) && (!p.kind || d.kind === p.kind))
+    .sort((a, b) => ACK_KINDS.indexOf(a.kind) - ACK_KINDS.indexOf(b.kind) || String(a.title).localeCompare(String(b.title), 'uk'));
+  const ppl = staff().filter(x => x.role !== 'відвідувач');
+  const wb = wbNew();
+  const ws = sheet(wb, 'Журнал', true);
+  widths(ws, [4, 18, 34, 12, 28, 20, 14, 12]);
+  const C = 8; let r = 1;
+  if (org()) r = line(ws, r, org(), C, { size: 11 });
+  r = line(ws, r, 'ЖУРНАЛ ОЗНАЙОМЛЕННЯ ПЕРСОНАЛУ З ДОКУМЕНТАМИ', C, { bold: true, size: 13 });
+  r = line(ws, r, lab() + (p.kind ? ', ' + p.kind.toLowerCase() : '') + ', станом на ' + uaDate(today()), C);
+  r++;
+  const rows = []; let n = 0;
+  docs.forEach(d => ppl.forEach(pp => {
+    const a = ackOf(d.id, pp.id);
+    rows.push([++n, d.kind || '', d.title || '', [d.version ? 'ред. ' + d.version : '', d.date ? uaDate(d.date) : ''].filter(Boolean).join('\n'), pp.pib || '', pp.posada || '', a ? uaDate(a.date) + ' (онлайн)' : 'не ознайомлений', '']);
+  }));
+  r = grid(ws, r, ['№', 'Вид документа', 'Назва документа', 'Редакція, дата', 'ПІБ працівника', 'Посада', 'Дата ознайомлення', 'Підпис'],
+    rows.length ? rows : [['', '', 'документів з обовʼязковим ознайомленням немає', '', '', '', '', '']], { left: [1, 2, 4, 5], size: 9, hh: 34 });
+  signs(ws, r, C, head());
+  return { wb, name: 'Журнал_ознайомлення_' + today() };
 };
 
 DOCS.vac = p => {

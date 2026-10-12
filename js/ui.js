@@ -480,7 +480,7 @@ function alerts() {
     if (bw) out.push({ cls: 'warn', href: '#/brief', text: `Інструктажі: чекають вашого підтвердження проведення — ${bw}` });
     if (bo.length) out.push({ cls: 'bad', href: '#/brief', text: `Інструктажі не пройдені в строк: ${bo.map(b => esc(b.title) + ' (' + briefStat(b).left + ')').join('; ')}` });
     for (const e of all('Обладнання')) { if (!e.calibTo) continue; const v = validity(e.calibTo); if (v.cls !== 'ok') out.push({ cls: v.cls, href: '#/equip', text: `Повірка: ${esc(e.name)} ${esc(e.invNo || '')} — ${v.text}` }); }
-    const req = all('Документи').filter(d => truthy(d.required));
+    const req = all('Документи').filter(needAck);
     let miss = 0; staff().filter(p => p.role !== 'відвідувач').forEach(p => req.forEach(d => { if (!ackOf(d.id, p.id)) miss++; }));
     if (miss) out.push({ cls: 'warn', href: '#/ackmatrix', text: `Не підтверджено ознайомлень: ${miss}` });
     const t = today(), Y = t.slice(0, 4);
@@ -497,9 +497,9 @@ function alerts() {
   } else if (ME.personId) {
     const bt = briefTodo(ME.personId);
     if (bt.length) out.push({ cls: bt.some(briefOverdue) ? 'bad' : 'warn', href: bt.length === 1 ? '#/briefing/' + bt[0].id : '#/brief', text: `Потрібно пройти інструктаж: ${bt.map(b => esc(b.title)).join('; ')}` });
-    const missD = all('Документи').filter(d => truthy(d.required) && !ackOf(d.id, ME.personId));
+    const missD = all('Документи').filter(d => needAck(d) && !ackOf(d.id, ME.personId));
     const mi = missD.filter(d => !isND(d)).length, mn = missD.filter(isND).length;
-    if (mi) out.push({ cls: 'warn', href: '#/docs', text: `Потрібно ознайомитися з інструкціями: ${mi}` });
+    if (mi) out.push({ cls: 'warn', href: '#/docs', text: `Потрібно ознайомитися з документами (робочі, посадові, положення, ДІВ): ${mi}` });
     if (mn) out.push({ cls: 'warn', href: '#/nd', text: `Потрібно ознайомитися з НД: ${mn}` });
     const t = today(), Y = t.slice(0, 4);
     const myPpe = ppeOf(ME.personId).filter(x => x.st.cls !== 'ok');

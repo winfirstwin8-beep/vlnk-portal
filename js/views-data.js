@@ -662,9 +662,12 @@ ROUTES.person = id => {
   h += card('Сертифікати з НК', (cs.length ? cs.map(c => certItem(c, canCert, lead)).join('') : empty('Сертифікатів не внесено')) +
     (cs.length ? '<p class="small mute">Скан сертифіката (PDF або фото) зберігається на Google Диску в папці «Сертифікати НК / ПІБ». «На пошту» — надсилає файл на ваш email.</p>' : ''),
     lead ? `<a class="small" href="#/certform/new/${esc(id)}">+ додати</a>` : '');
-  const docs = all('Документи').filter(d => truthy(d.required));
+  const docs = all('Документи').filter(needAck);
   const ok = docs.filter(d => ackOf(d.id, id)).length;
-  h += card('Ознайомлення з документами', `<p>${ok} з ${docs.length} обовʼязкових</p>${bar(docs.length ? ok / docs.length * 100 : 0)}`);
+  const missDocs = docs.filter(d => !ackOf(d.id, id));
+  h += card('Ознайомлення з документами', `<p>${ok} з ${docs.length} обовʼязкових</p>${bar(docs.length ? ok / docs.length * 100 : 0)}` +
+    (missDocs.length && (lead || id === ME.personId) ? `<details><summary class="small">Не ознайомлений(-а): ${missDocs.length}</summary><ul class="plain small">${missDocs.map(d => `<li><a href="#/doc/${esc(d.id)}">${esc(d.title)}</a> <span class="mute">· ${esc(d.kind)}</span></li>`).join('')}</ul></details>` : '') +
+    '<p class="small mute">Інструкції з охорони праці — через <a href="#/brief">інструктажі</a>.</p>');
   const eq = all('Обладнання').filter(e => e.holderType === 'працівник' && e.holderId === id);
   const Yv = today().slice(0, 4);
   const vs = vacSummary(id, Yv);
@@ -1248,14 +1251,28 @@ function docFileTile(d, big) {
   return `<button type="button" class="filetile${big ? ' big' : ''}" data-act="docfile" data-id="${esc(d.id)}"${pend ? ' disabled' : ''}>
     <span class="ft-ic ft-${t[1]}">${t[0]}</span><span class="ft-body"><b>${esc(n.replace(/\.[a-z0-9]{2,5}$/i, ''))}</b><small>${pend ? '⏳ файл ще відправляється' : (ext ? ext.toUpperCase() + ' · ' : '') + (off ? 'збережено на телефоні · ' : '') + 'натисніть, щоб відкрити'}</small></span><span class="ft-go">Відкрити ›</span></button>`;
 }
+/** Останній пройдений інструктаж, до якого прикріплено інструкцію з ОП. */
+function ohsBrief(docId, pid) {
+  return all('Інструктажі').filter(b => arr(b.docIds).includes(docId)).map(b => ({ b, p: briefPass(b.id, pid) })).filter(x => x.p).sort((x, y) => num(y.p.ts) - num(x.p.ts))[0] || null;
+}
 function docItem(d) {
+  if (isOHS(d)) return docItemOHS(d);
   const a = ME.personId ? ackOf(d.id, ME.personId) : null;
   const rd = docReadable(d);
-  return `<div class="item"><div class="row between">${rd ? `<a href="#/doc/${esc(d.id)}"><b>${esc(d.title)}</b></a>` : `<b>${esc(d.title)}</b>`}${truthy(d.required) ? badge('обовʼязково') : ''}</div>
+  return `<div class="item"><div class="row between">${rd ? `<a href="#/doc/${esc(d.id)}"><b>${esc(d.title)}</b></a>` : `<b>${esc(d.title)}</b>`}${needAck(d) ? badge('обовʼязкове ознайомлення') : ''}</div>
     <span class="small mute">${isND(d) ? esc(d.kind) + (d.version || d.date ? ' · ' : '') : ''}${d.version ? 'ред. ' + esc(d.version) : ''}${d.date ? ' від ' + uaDate(d.date) : ''}${String(d.text || '').trim() ? ' · текст у порталі' : ''}</span>
     ${docFileTile(d)}
     <div class="row gap">${rd ? `<a class="btn small ${a || !ME.personId ? 'ghost' : 'primary'}" href="#/doc/${esc(d.id)}">📖 ${a || !ME.personId ? 'Читати' : 'Читати й ознайомитися'}</a>` : ''}${d.link ? `<a class="btn small ghost" href="${esc(d.link)}" target="_blank" rel="noopener">Відкрити ↗</a>` : ''}${docSendBtns(d)}
     ${ME.personId ? (a ? badge('✓ ознайомлений ' + uaDate(a.date), 'ok') : rd ? '' : `<button class="btn small primary" data-act="ack" data-id="${esc(d.id)}">Ознайомлений</button>`) : ''}
+    ${isLead() ? `<a class="btn small ghost" href="#/docform/${esc(d.id)}">Змінити</a>` : ''}</div></div>`;
+}
+function docItemOHS(d) {
+  const rd = docReadable(d), x = ME.personId ? ohsBrief(d.id, ME.personId) : null;
+  return `<div class="item"><div class="row between">${rd ? `<a href="#/doc/${esc(d.id)}"><b>${esc(d.title)}</b></a>` : `<b>${esc(d.title)}</b>`}${badge('через інструктаж')}</div>
+    <span class="small mute">${d.version ? 'ред. ' + esc(d.version) : ''}${d.date ? ' від ' + uaDate(d.date) : ''}${String(d.text || '').trim() ? ' · текст у порталі' : ''}</span>
+    ${docFileTile(d)}
+    <div class="row gap">${rd ? `<a class="btn small ghost" href="#/doc/${esc(d.id)}">📖 Читати</a>` : ''}${d.link ? `<a class="btn small ghost" href="${esc(d.link)}" target="_blank" rel="noopener">Відкрити ↗</a>` : ''}${docSendBtns(d)}
+    ${x ? badge('✓ інструктаж ' + uaDate(x.p.date), 'ok') : ''}
     ${isLead() ? `<a class="btn small ghost" href="#/docform/${esc(d.id)}">Змінити</a>` : ''}</div></div>`;
 }
 const byTitle = (a, b) => String(a.title).localeCompare(String(b.title), 'uk');
@@ -1267,7 +1284,8 @@ ROUTES.docs = () => {
   const f = INSTR_KINDS.includes(UI.dkg) ? UI.dkg : 'all', fi = INSTR_KINDS.indexOf(f);
   const cnt = k => docs.filter(d => d.kind === k).length;
   let h = seg('dkg', [['all', 'Усі'], ...INSTR_KINDS.map((k, i) => [k, LBL[i] + (cnt(k) ? ' ' + cnt(k) : '')])], f).replace('class="seg"', 'class="seg wrap"');
-  if (isLead()) h += `<div class="row gap"><a class="btn ghost" href="#/ackmatrix">Журнал ознайомлення</a></div>` + fab('#/docform/new' + (fi >= 0 ? '/k' + fi : ''));
+  if (isLead()) h += `<div class="row gap"><a class="btn ghost" href="#/ackmatrix">📋 Журнал ознайомлення</a><a class="btn ghost" href="#/brief">🎓 Журнал інструктажів (ОП)</a></div>` + fab('#/docform/new' + (fi >= 0 ? '/k' + fi : ''));
+  h += `<p class="small mute">Робочі, посадові інструкції, положення та інструкції ДІВ — ознайомлення онлайн після прочитання. Інструкції з охорони праці — через інструктажі (журнал реєстрації інструктажів).</p>`;
   let any = false;
   INSTR_KINDS.forEach((k, i) => {
     if (f !== 'all' && f !== k) return;
@@ -1317,12 +1335,20 @@ ROUTES.doc = id => {
     ${d.link ? `<a class="btn small ghost" href="${esc(d.link)}" target="_blank" rel="noopener">Google Диск ↗</a>` : ''}${docSendBtns(d)}${isLead() ? `<a class="btn small ghost" href="#/docform/${esc(d.id)}">Змінити</a>` : ''}</div>`;
   if (hasFile) h += docFileTile(d, true);
   h += hasText ? `<article class="doctext" style="font-size:${fs}px">${docTextHtml(d.text)}</article><div id="docend" class="small mute center">— кінець документа —</div>` : (hasFile ? '' : `<div class="card"><p class="mute">Текст документа не внесено${d.link ? ' — відкрийте посилання' : ''}.</p></div>`);
-  if (ME.personId) {
+  if (isOHS(d)) {
+    const x = ME.personId ? ohsBrief(d.id, ME.personId) : null;
+    h += card('', `<p class="center">${x ? `<b class="ok">✓ Інструктаж пройдено ${uaDate(x.p.date)}</b> · <a href="#/briefing/${esc(x.b.id)}">${esc(x.b.title)}</a>` : 'Ознайомлення з інструкціями з охорони праці фіксується під час інструктажу.'}</p><div class="row gap center"><a class="btn ghost" href="#/brief">🎓 Інструктажі</a></div>`);
+  } else if (ME.personId) {
     h += a ? card('', `<p class="ok center"><b>✓ Ви ознайомились ${uaDate(a.date)}</b></p>`)
       : card('', `<button class="btn primary wide" id="docack" data-act="ack" data-id="${esc(d.id)}" ${hasText ? 'disabled' : hasFile ? 'disabled' : ''}>Ознайомлений(-а) з документом</button>
         <p class="small mute center" id="dochint">${hasText ? 'Кнопка стане активною, коли ви дочитаєте текст до кінця.' : hasFile ? 'Кнопка стане активною після відкриття файлу документа.' : ''}</p>`);
   }
-  if (hasText && !a && ME.personId) setTimeout(docReaderWatch, 0);
+  if (isLead() && needAck(d)) {
+    const ppl = staff().filter(p => p.role !== 'відвідувач');
+    const okN = ppl.filter(p => ackOf(d.id, p.id)).length;
+    h += card(`Ознайомлення · ${okN}/${ppl.length}`, bar(ppl.length ? okN / ppl.length * 100 : 0) + `<ul class="plain small">${ppl.map(p => { const x = ackOf(d.id, p.id); return `<li>${x ? '<span class="ok">✓</span>' : '<span class="bad">✗</span>'} ${esc(shortName(p.pib))}${x ? ' <span class="mute">· ' + uaDate(x.date) + '</span>' : ''}</li>`; }).join('')}</ul>`);
+  }
+  if (hasText && !a && ME.personId && !isOHS(d)) setTimeout(docReaderWatch, 0);
   return page(isND(d) ? 'НД' : 'Інструкція', h, isND(d) ? '#/nd' : '#/docs');
 };
 function docReaderWatch() {
@@ -1401,7 +1427,7 @@ ROUTES.docform = (id = 'new', sect) => {
      <p class="small mute">Рядок, що починається з «# », — заголовок розділу; порожній рядок — новий абзац. Працівник зможе підтвердити ознайомлення лише після того, як дочитає текст до кінця.</p>
      <label class="f"><span>Файл документа (PDF, Word)${d.fileName ? ' — зараз: ' + esc(d.fileName) : ''}</span><input type="file" name="docfile" accept="application/pdf,.doc,.docx,image/*"><small>необовʼязково; відкривається з картки документа, зберігається на Диску</small></label>` +
     `<div class="grid2">${fInp('Редакція / версія', 'version', d.version)}${fInp('Дата введення', 'date', d.date, { type: 'date', hint: 'нова дата — повторне ознайомлення' })}</div>` +
-    fChk('Обовʼязкове ознайомлення', 'required', d.required);
+    fChk('Обовʼязкове ознайомлення', 'required', d.required) + (nd ? '' : '<p class="small mute">Для інструкцій з охорони праці ознайомлення фіксується через інструктажі — прикріпіть інструкцію до інструктажу.</p>');
   return page(nd ? 'Нормативний документ' : 'Інструкція', form('doc', id, body, src ? { del: { t: 'Документи', id, back } } : {}), back);
 };
 FORMS.doc = async (d, id, f) => {
@@ -1417,14 +1443,17 @@ FORMS.doc = async (d, id, f) => {
 ROUTES.ackmatrix = sect => {
   if (isVisitor()) return denied();
   const nd = sect === 'nd', back = nd ? '#/nd' : '#/docs', ttl = 'Журнал ознайомлення · ' + (nd ? 'НД' : 'Інструкції');
-  const docs = all('Документи').filter(d => truthy(d.required) && isND(d) === nd)
+  const ak = !nd && ACK_KINDS.includes(UI.akg) ? UI.akg : '';
+  const flt = nd ? '' : seg('akg', [['', 'Усі'], ...ACK_KINDS.map(k => [k, { 'Робоча інструкція': 'Робочі', 'Посадова інструкція': 'Посадові', 'Інструкція ДІВ': 'Робота з ДІВ' }[k] || 'Положення'])], ak).replace('class="seg"', 'class="seg wrap"') +
+    `<div class="row gap"><a class="btn ghost small" href="#/gen/ack">⬇ Журнал ознайомлення (.xlsx)</a><a class="btn ghost small" href="#/brief">🎓 Інструктажі з ОП</a></div>`;
+  const docs = all('Документи').filter(d => needAck(d) && isND(d) === nd && (!ak || d.kind === ak))
     .sort((a, b) => nd ? ND_GROUPS.indexOf(ndGroupOf(a)) - ND_GROUPS.indexOf(ndGroupOf(b)) || byTitle(a, b) : String(a.kind).localeCompare(String(b.kind)) || byTitle(a, b));
   const ppl = staff().filter(p => p.role !== 'відвідувач');
-  if (!docs.length) return page(ttl, empty('Обовʼязкових документів немає'), back);
-  const rows = docs.map(d => [`<span class="small">${nd ? '<b>' + esc(ndGroupOf(d) === 'Загальна НД' ? 'Заг.' : ndGroupOf(d)) + '</b> · ' : ''}${esc(d.title)}</span>`, ...ppl.map(p => { const a = ackOf(d.id, p.id); return a ? `<span class="ok" title="${uaDate(a.date)}">✓</span>` : '<span class="bad">✗</span>'; })]);
+  if (!docs.length) return page(ttl, flt + empty('Обовʼязкових документів немає'), back);
+  const rows = docs.map(d => [`<span class="small" style="display:block;white-space:normal;min-width:170px;max-width:240px;text-align:left">${nd ? '<b>' + esc(ndGroupOf(d) === 'Загальна НД' ? 'Заг.' : ndGroupOf(d)) + '</b> · ' : ''}<a href="#/doc/${esc(d.id)}">${esc(d.title)}</a></span>`, ...ppl.map(p => { const a = ackOf(d.id, p.id); return a ? `<span class="ok" title="${uaDate(a.date)}">✓</span>` : '<span class="bad">✗</span>'; })]);
   const tot = ppl.map(p => docs.filter(d => ackOf(d.id, p.id)).length);
   rows.push(['<b>Разом</b>', ...tot.map(t => `<b>${t}/${docs.length}</b>`)]);
-  return page(ttl, table(['Документ', ...ppl.map(p => `<span class="vert">${esc(shortName(p.pib))}</span>`)], rows, 'center first'), back);
+  return page(ttl, flt + table(['Документ', ...ppl.map(p => `<span class="vert">${esc(shortName(p.pib))}</span>`)], rows, 'center first'), back);
 };
 
 // ═════════ ПАЛИВО ═════════
