@@ -1,7 +1,7 @@
 /* Портал ВЛНК — демо-дані (вигадані), лише для ознайомлення без сервера */
 'use strict';
 
-const DEMO_VER = '1.8.75'; // змінювати, коли змінюються демо-дані
+const DEMO_VER = '1.8.76'; // змінювати, коли змінюються демо-дані
 const DEMO_USER = { email: 'demo@vlnk.local', name: 'Гончаренко О.В. (демо)', personId: 'p1', role: 'керівник' };
 
 async function seedDemo() {
@@ -326,6 +326,12 @@ async function seedDemo() {
     const d = {}; [1, 2, 3].forEach(q => { if (!(i === 1 && q === 3)) d[Y + '-' + q] = { dose: Math.round((0.18 + ((i * 7 + q * 3) % 11) * 0.06) * 1000) / 1000, date: Y + '-' + String(q * 3).padStart(2, '0') + '-2' + (i % 8), note: 'ТЛД № ' + (300 + i) }; });
     add('Налаштування', { id: 'sidk' + i, key: 'idk:' + pid, value: JSON.stringify(d) });
   });
+  { const ids = rows.filter(([t, r]) => t === 'Сертифікати' && /RT/.test(r.method)).map(([, r]) => r.personId).filter((v, i, a) => a.indexOf(v) === i), info = {};
+    const pl = ['Київська обл., м. Боярка', 'Одеська обл., смт Тарутине', 'Київська обл., с. Калинівка', 'Чернігівська обл., с. Лісові Сорочинці', 'Київська обл., с. Юрівка'];
+    ids.forEach((pid, i) => (info[pid] = { birth: (1969 + i * 4) + '-0' + (i % 9 + 1) + '-1' + (i % 9), place: pl[i % pl.length], dos: String(66112 + i * 8513).padStart(7, '0') }));
+    info.__fon = { dos: '0041647' };
+    add('Налаштування', { id: 'sidkinfo', key: 'idkinfo', value: JSON.stringify(info) });
+    add('Налаштування', { id: 'sidkfon', key: 'idk:__fon', value: JSON.stringify({ [Y + '-1']: { dose: 0.21 }, [Y + '-2']: { dose: 0.23 }, [Y + '-3']: { dose: 0.22 } }) }); }
 
   const entries = rows.map(([t, r]) => [t + '|' + r.id, { t, r }]);
   await IDB.putMany('rows', entries);

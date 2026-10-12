@@ -23,7 +23,9 @@ const GEN_TYPES = [
   ['ppecard', 'Особова картка обліку ЗІЗ'],
   ['ppeneed', 'Заявка (потреба) на ЗІЗ'],
   ['brief', 'Журнал реєстрації інструктажів (онлайн-підтвердження)'],
-  ['ack', 'Журнал ознайомлення з документами (робочі, посадові, положення, ДІВ)']
+  ['ack', 'Журнал ознайомлення з документами (робочі, посадові, положення, ДІВ)'],
+  ['idk', 'Протокол індивідуального дозиметричного контролю (ІДК) персоналу категорії А'],
+  ['certs', 'Реєстр сертифікатів НК персоналу']
 ];
 
 // ───────── екран ─────────
@@ -33,7 +35,8 @@ ROUTES.gen = (type, objectId) => {
   if (!UI.gen) UI.gen = { type: 'tabel', from: m + '-01', to: monthEnd(m), brigade: '1', objectId: '' };
   if (type) { UI.gen.type = type; UI.gen.objectId = objectId || ''; location.replace('#/gen'); }
   const g = UI.gen;
-  const body = fSel('Документ', 'type', GEN_TYPES, g.type, { re: true }) + (g.type === 'ack'
+  const body = fSel('Документ', 'type', GEN_TYPES, g.type, { re: true }) + (g.type === 'certs' ? '' : g.type === 'idk'
+    ? fSel('Рік', 'year', idkYears().map(String), String(g.year && idkYears().includes(+g.year) ? g.year : (UI.idky || idkYears()[0]))) : g.type === 'ack'
     ? fSel('Вид документів', 'kind', ACK_KINDS, g.kind, { none: 'Усі (робочі, посадові, положення, ДІВ)' }) : g.type === 'vac'
     ? fSel('Рік', 'year', vacYears(), g.year || today().slice(0, 4)) : g.type === 'ppecard'
     ? fSel('Працівник', 'personId', staffOpts(), g.personId, { none: 'Усі працівники (окремий аркуш на кожного)' }) : g.type === 'ppeneed'
@@ -53,9 +56,11 @@ ROUTES.gen = (type, objectId) => {
     mat: 'Витрата за нормами на стик для кожного діаметра (або фактична, якщо її вписали у звіті), з розбивкою по діаметрах і протоколом по днях.',
     brief: 'Інструктажі з датою в межах періоду: кожен учасник окремим рядком, дата і час онлайн-підтвердження, результат контрольних питань.',
     ack: 'Чинні документи з обовʼязковим ознайомленням: кожен працівник окремим рядком, дата онлайн-ознайомлення з актуальною редакцією і графа для підпису. Інструкції з охорони праці — у журналі інструктажів.',
+    idk: 'Протокол за формою ДУ «Київський ОЦКПХ МОЗ»: квартальні дози працівників категорії А, рядок ФОН, сумарна річна доза без урахування фону. Дані працівників і реквізити — на сторінці Персонал → ІДК.',
+    certs: 'Усі сертифікати та посвідчення НК персоналу: метод, рівень, сектори, номер, орган, дати і стан чинності на сьогодні.',
     vac: 'Частини відпусток (план і факт), облік днів, розбивка по місяцях і графа для підпису про ознайомлення.'
   }[g.type];
-  const periods = ['vac', 'ppecard', 'ppeneed', 'brief', 'ack'].includes(g.type) ? '' : genTaskPeriods(ym(g.from || today()), g.brigade, g.objectId);
+  const periods = ['vac', 'ppecard', 'ppeneed', 'brief', 'ack', 'idk', 'certs'].includes(g.type) ? '' : genTaskPeriods(ym(g.from || today()), g.brigade, g.objectId);
   return page('Формування документів', `<form class="form" data-form="gen" data-id="gen">${body}<p class="small mute">${hint}</p>
     <div class="form-actions"><button class="btn primary" type="submit">Сформувати .xlsx</button></div></form><div id="genres"></div>` + periods, '#/menu');
 };
@@ -94,7 +99,7 @@ ACTS.genper = d => {
 };
 FORMS.gen = async d => {
   Object.assign(UI.gen, d);
-  if (!['vac', 'ppecard', 'ppeneed', 'ack'].includes(d.type) && (!d.from || !d.to || d.to < d.from)) return toast('Перевірте період');
+  if (!['vac', 'ppecard', 'ppeneed', 'ack', 'idk', 'certs'].includes(d.type) && (!d.from || !d.to || d.to < d.from)) return toast('Перевірте період');
   const out = $('#genres');
   out.innerHTML = `<div class="card"><p>Формування…</p></div>`;
   try {
@@ -453,6 +458,68 @@ DOCS.ack = p => {
     rows.length ? rows : [['', '', 'документів з обовʼязковим ознайомленням немає', '', '', '', '', '']], { left: [1, 2, 4, 5], size: 9, hh: 34 });
   signs(ws, r, C, head());
   return { wb, name: 'Журнал_ознайомлення_' + today() };
+};
+
+DOCS.idk = p => {
+  const y = +(p.year || today().slice(0, 4)), H = idkHdr(), { rows, fon } = idkRows(y);
+  const wb = wbNew();
+  const ws = sheet(wb, 'ІДК ' + y, true);
+  widths(ws, [5, 30, 13, 26, 30, 13, 9, 9, 9, 9, 14]);
+  const C = 11; let r = 1;
+  const yr = `«___» ____________ ${y} р.`;
+  const hdr = (col1, col2, text, name) => {
+    const lines = [text, '________________ ' + name, yr];
+    lines.forEach((t, k) => { ws.mergeCells(r + k, col1, r + k, col2); const c = ws.getCell(r + k, col1); c.value = t; c.font = { name: FONT, size: 11 }; c.alignment = { horizontal: 'left', vertical: 'top', wrapText: true }; });
+  };
+  hdr(1, 4, H.apprL, H.apprLName); hdr(7, 11, H.apprR, H.apprRName);
+  ws.getRow(r).height = 78; r += 4;
+  r = line(ws, r, 'ПРОТОКОЛ', C, { bold: true, size: 14 });
+  r = line(ws, r, `Індивідуального дозиметричного контролю ${H.subj} в ${y} році`, C, { bold: true, size: 12, h: 20 });
+  r++;
+  // двоярусна шапка
+  const top = ['№ з/п', 'П.І.Б.', 'Рік народження', 'Місце проживання', 'Посада', 'Номер дозиметра', 'Квартальні дози опромінення, мЗв', '', '', '', 'Сумарна річна доза, мЗв (без урахування фону)'];
+  const sub = ['', '', '', '', '', '', 'І', 'ІІ', 'ІІІ', 'IV', ''];
+  [top, sub].forEach((row, k) => row.forEach((v, i) => { const c = ws.getCell(r + k, i + 1); c.value = v || null; c.font = { name: FONT, size: 10, bold: true }; c.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true }; c.border = BORDER; c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE8EEF7' } }; }));
+  [1, 2, 3, 4, 5, 6, 11].forEach(i => ws.mergeCells(r, i, r + 1, i)); ws.mergeCells(r, 7, r, 10);
+  ws.getRow(r).height = 30; ws.getRow(r + 1).height = 18; r += 2;
+  const dz = x => x ? num(x.dose) : '';
+  const body = rows.map((x, i) => [i + 1, pibCaps(x.pib), x.birth ? uaDate(x.birth) : '', x.place, x.posada, x.dos, ...x.q.map(dz), r3(x.sum)]);
+  body.push([rows.length + 1, 'ФОН', '', '', '', fon.dos, ...fon.q.map(dz), r3(fon.sum)]);
+  body.forEach(row => {
+    row.forEach((v, i) => { const c = ws.getCell(r, i + 1); c.value = v === '' ? null : v; c.font = { name: FONT, size: 10, bold: i === 1 && row[1] === 'ФОН' }; c.alignment = { horizontal: [1, 3, 4].includes(i) ? 'left' : 'center', vertical: 'middle', wrapText: true }; c.border = BORDER; if (i >= 6 && typeof v === 'number') c.numFmt = '0.000'; });
+    ws.getRow(r).height = 30; r++;
+  });
+  r++;
+  [[H.resp, H.respName], [H.dep, H.depName]].forEach(([pos, name]) => {
+    ws.mergeCells(r, 1, r, 5); ws.getCell(r, 1).value = pos; ws.getCell(r, 1).font = { name: FONT, size: 11 }; ws.getCell(r, 1).alignment = { wrapText: true, vertical: 'bottom' };
+    ws.mergeCells(r, 6, r, 11); ws.getCell(r, 6).value = '________________  ' + (name || '________________'); ws.getCell(r, 6).font = { name: FONT, size: 11 }; ws.getCell(r, 6).alignment = { horizontal: 'right', vertical: 'bottom' };
+    ws.getRow(r).height = 30; r += 2;
+  });
+  return { wb, name: `Протокол_ІДК_${y}.xlsx` };
+};
+
+DOCS.certs = () => {
+  const ppl = staff().filter(x => x.role !== 'відвідувач'), ids = new Set(ppl.map(x => x.id));
+  const cs = all('Сертифікати').filter(c => ids.has(c.personId));
+  const ord = m => { const i = CERT_TYPES.indexOf(CERT_ALIAS[m] || m); return i < 0 ? 99 : i; };
+  const wb = wbNew();
+  const ws = sheet(wb, 'Сертифікати', true);
+  widths(ws, [4, 30, 26, 16, 7, 20, 16, 26, 11, 11, 22]);
+  const C = 11; let r = 1;
+  if (org()) r = line(ws, r, org(), C, { size: 11 });
+  r = line(ws, r, 'РЕЄСТР СЕРТИФІКАТІВ (ПОСВІДЧЕНЬ) ПЕРСОНАЛУ З НЕРУЙНІВНОГО КОНТРОЛЮ', C, { bold: true, size: 13 });
+  r = line(ws, r, lab() + ', станом на ' + uaDate(today()), C);
+  r++;
+  const rows = []; let n = 0;
+  ppl.slice().sort((a, b) => String(a.pib).localeCompare(String(b.pib), 'uk')).forEach(pp => {
+    const list = cs.filter(c => c.personId === pp.id).sort((a, b) => ord(a.method) - ord(b.method) || String(b.validTo).localeCompare(String(a.validTo)));
+    if (!list.length) { rows.push([++n, pp.pib || '', pp.posada || '', 'сертифікатів немає', '', '', '', '', '', '', '']); return; }
+    list.forEach((c, k) => { const v = validity(c.validTo);
+      rows.push([k ? '' : ++n, k ? '' : pp.pib || '', k ? '' : pp.posada || '', c.method || '', c.level || '', c.sector || '', c.number || '', c.body || '', uaDate(c.issued), uaDate(c.validTo), v.cls === 'ok' ? 'чинний' : v.cls === 'warn' ? 'спливає ' + v.text.replace(/^до /, '') : v.cls === 'bad' ? 'прострочено' : 'не вказано']); });
+  });
+  r = grid(ws, r, ['№', 'ПІБ', 'Посада', 'Метод / вид', 'Рівень', 'Сектори', '№ сертифіката', 'Орган сертифікації', 'Видано', 'Дійсний до', 'Стан'], rows, { left: [1, 2, 5, 7], size: 9, hh: 34 });
+  signs(ws, r, C, head());
+  return { wb, name: 'Сертифікати_НК_' + today() + '.xlsx' };
 };
 
 DOCS.vac = p => {

@@ -473,7 +473,7 @@ ROUTES.staff = () => {
   const m = ym(today());
   const bOf = {}; BRIGADES.forEach(n => brigadeMembers(brigadeOf(m, n)).forEach(id => (bOf[id] = n)));
   const nv = visitors().length;
-  let h = `<div class="row gap"><a class="btn ghost" href="#/certs">Сертифікати</a><a class="btn ghost" href="#/ackmatrix">Ознайомлення</a>${isLead() ? `<a class="btn ghost" href="#/visitors">Відповідальні від замовника${nv ? ' · ' + nv : ''}</a><a class="btn ghost" href="#/access">🔑 Доступ до порталу</a>` : ''}${isLead() && hiddenPeople().length ? `<a class="btn ghost" href="#/hiddenstaff">Приховані · ${hiddenPeople().length}</a>` : ''}</div>`;
+  let h = `<div class="row gap"><a class="btn ghost" href="#/certs">Сертифікати</a><a class="btn ghost" href="#/idk">☢ ІДК</a><a class="btn ghost" href="#/ackmatrix">Ознайомлення</a>${isLead() ? `<a class="btn ghost" href="#/visitors">Відповідальні від замовника${nv ? ' · ' + nv : ''}</a><a class="btn ghost" href="#/access">🔑 Доступ до порталу</a>` : ''}${isLead() && hiddenPeople().length ? `<a class="btn ghost" href="#/hiddenstaff">Приховані · ${hiddenPeople().length}</a>` : ''}</div>`;
   if (isLead()) h += fab('#/personform/new');
   const st = staff(), stOf = {}; st.forEach(p => (stOf[p.id] = personState(p)));
   const cnt = k => st.filter(p => stOf[p.id] === k).length;
@@ -658,6 +658,7 @@ function idkDue(pid, t = today()) {
   return out;
 }
 function idkCard(p) {
+  UI.idkBack = false;
   const pid = p.id, lead = isLead(), need = idkNeeded(pid), d = idkData(pid);
   if (!need && !lead && !Object.keys(d).length) return '';
   const Y = +today().slice(0, 4), lim = idkLimit();
@@ -677,9 +678,82 @@ ACTS.idkcat = async d => {
   let m = {}; try { m = JSON.parse(setting('idkcat', '{}')) || {}; } catch (e) { }
   m[d.id] = d.v === '1'; await saveSetting('idkcat', JSON.stringify(m)); savedMsg('Збережено'); render();
 };
+// ───────── Протокол ІДК по всіх працівниках категорії А ─────────
+const IDK_FON = '__fon';
+const IDK_HDR = {
+  apprL: 'В. о. Завідувача лабораторії фізичних факторів Відділу організації лабораторної роботи, системи управління якості та метрологічного забезпечення ДУ «КИЇВСЬКИЙ ОЦКПХ МОЗ»', apprLName: 'Тетяна ГУЗЬ',
+  apprR: 'Затверджую:\nНачальник ОРУ ТОВ «ОГТСУ»', apprRName: 'Андрій ТОРОПОВ',
+  subj: 'працівників категорії «А» ОРУ ТОВ «ОГТСУ»',
+  resp: 'Відповідальний за ІДК начальник ВЛНК', respName: 'Михайло МАНЗЯ',
+  dep: 'Заступник директора-завідувач відділу дослідження фізичних та хімічних факторів', depName: ''
+};
+const idkHdr = () => { let m = {}; try { m = JSON.parse(setting('idkhdr', '{}')) || {}; } catch (e) { } return Object.assign({}, IDK_HDR, m); };
+const idkInfoAll = () => { try { return JSON.parse(setting('idkinfo', '{}')) || {}; } catch (e) { return {}; } };
+const idkInfo = pid => idkInfoAll()[pid] || {};
+/** ПІБ для протоколу: прізвище великими літерами. */
+const pibCaps = s => { const a = String(s || '').trim().split(/\s+/); if (!a[0]) return ''; a[0] = a[0].toUpperCase(); return a.join(' '); };
+const idkYears = () => { const Y = +today().slice(0, 4); const ys = new Set([Y]); staff().concat([{ id: IDK_FON }]).forEach(p => Object.keys(idkData(p.id)).forEach(k => ys.add(+k.slice(0, 4)))); return [...ys].sort((a, b) => b - a); };
+/** Рядки протоколу за рік: працівники категорії А + ФОН. */
+function idkRows(y) {
+  const ppl = staff().filter(p => p.role !== 'відвідувач' && (idkNeeded(p.id) || [1, 2, 3, 4].some(q => idkData(p.id)[idkKey(y, q)])))
+    .sort((a, b) => String(a.pib).localeCompare(String(b.pib), 'uk'));
+  const rows = ppl.map(p => { const i = idkInfo(p.id), d = idkData(p.id); return { id: p.id, pib: p.pib, birth: i.birth || '', place: i.place || '', posada: i.posada || p.posada || '', dos: i.dos || '', q: [1, 2, 3, 4].map(q => d[idkKey(y, q)]), sum: idkYearSum(p.id, y) }; });
+  const fi = idkInfo(IDK_FON), fd = idkData(IDK_FON);
+  return { rows, fon: { id: IDK_FON, dos: fi.dos || '', q: [1, 2, 3, 4].map(q => fd[idkKey(y, q)]), sum: idkYearSum(IDK_FON, y) } };
+}
+ROUTES.idk = () => {
+  if (isVisitor()) return denied();
+  const lead = isLead(), ys = idkYears(); const y = ys.includes(+UI.idky) ? +UI.idky : ys[0]; UI.idky = y;
+  const { rows, fon } = idkRows(y), lim = idkLimit(), H = idkHdr(), Y = +today().slice(0, 4), cq = qOfDate(today());
+  const qcell = (pid, r, q) => { const v = r ? `<b>${fmtN3(num(r.dose))}</b>` : (y < Y || (y === Y && q < cq) ? '<span class="bad">—</span>' : '<span class="mute">·</span>');
+    return lead ? `<a href="#/idkform/${esc(pid)}/${idkKey(y, q)}" data-act="idkback" title="Внести / змінити дозу">${v}</a>` : v; };
+  const info = r => [r.posada, r.dos ? 'дозиметр № ' + r.dos : '', lead && r.birth ? 'н. ' + uaDate(r.birth) : '', lead ? r.place : ''].filter(Boolean).map(esc).join(' · ');
+  const trs = rows.map((r, i) => `<tr><td>${i + 1}</td><td class="l"><a href="#/person/${esc(r.id)}"><b>${esc(pibCaps(r.pib))}</b></a><br><span class="small mute">${info(r) || '<i>дані не внесено</i>'}</span>${lead ? ` <a class="small" href="#/idkinfo/${esc(r.id)}">✎</a>` : ''}</td>` +
+    r.q.map((x, k) => `<td>${qcell(r.id, x, k + 1)}</td>`).join('') +
+    `<td class="${r.sum > lim ? 'bad' : r.sum >= lim * 0.8 ? 'warn' : ''}"><b>${fmtN3(r.sum)}</b></td></tr>`).join('') +
+    `<tr class="fon"><td>${rows.length + 1}</td><td class="l"><b>ФОН</b><br><span class="small mute">${fon.dos ? 'дозиметр № ' + esc(fon.dos) : 'фоновий дозиметр'}</span>${lead ? ` <a class="small" href="#/idkinfo/${IDK_FON}">✎</a>` : ''}</td>` +
+    fon.q.map((x, k) => `<td>${qcell(IDK_FON, x, k + 1)}</td>`).join('') + `<td><b>${fmtN3(fon.sum)}</b></td></tr>`;
+  const thead = `<thead><tr><th rowspan="2">№</th><th rowspan="2" class="l">П.І.Б., посада, № дозиметра</th><th colspan="4">Квартальні дози, мЗв</th><th rowspan="2">За рік, мЗв</th></tr><tr>${QN.map(q => `<th>${q}</th>`).join('')}</tr></thead>`;
+  let h = `<div class="row gap">${seg('idky', ys.map(v => [v, String(v)]), y)}</div>`;
+  h += card(`Протокол ІДК ${esc(H.subj)} в ${y} році`,
+    `<div class="tw"><table class="idkprot">${thead}<tbody>${trs}</tbody></table></div>` +
+    `<p class="small mute">«За рік» — сумарна річна доза без урахування фону. ${lead ? 'Натисніть на дозу, щоб внести або змінити її; ✎ — дані працівника для протоколу. ' : ''}Контрольний рівень — ${fmtN(lim)} мЗв/рік. До протоколу входять працівники категорії А (позначка в картці працівника, сертифікат RT або наявні записи ІДК).</p>` +
+    (rows.some(r => r.sum > lim) ? `<p class="bad">⛔ Перевищено контрольний рівень: ${rows.filter(r => r.sum > lim).map(r => esc(shortName(r.pib))).join(', ')}</p>` : ''));
+  h += `<div class="row gap"><a class="btn primary" href="#/gen/idk">⬇ Експорт протоколу (.xlsx)</a>${lead ? '<a class="btn ghost" href="#/idkhdr">Реквізити протоколу</a>' : ''}</div>`;
+  return page('ІДК — протокол', h, '#/staff');
+};
+ACTS.idkback = (d, el) => { UI.idkBack = true; go(el.getAttribute('href')); };
+ROUTES.idkinfo = pid => {
+  if (!isLead()) return denied();
+  const fon = pid === IDK_FON, p = fon ? { pib: 'ФОН (фоновий дозиметр)' } : get('Персонал', pid); if (!p) return notFound();
+  const i = idkInfo(pid);
+  const body = `<div class="note">${esc(p.pib)}${p.posada ? ' · ' + esc(p.posada) : ''}</div>` +
+    (fon ? '' : `<div class="grid2">${fInp('Дата народження', 'birth', i.birth || '', { type: 'date' })}${fInp('Посада в протоколі (якщо відрізняється)', 'posada', i.posada || '')}</div>` +
+      fInp('Місце проживання', 'place', i.place || '')) +
+    fInp('Номер дозиметра', 'dos', i.dos || '');
+  return page('ІДК · дані працівника', form('idkinfo', pid, body), '#/idk');
+};
+FORMS.idkinfo = async (d, pid) => {
+  const m = idkInfoAll(); m[pid] = { birth: d.birth || '', place: (d.place || '').trim(), posada: (d.posada || '').trim(), dos: (d.dos || '').trim() };
+  await saveSetting('idkinfo', JSON.stringify(m)); UI.dirty = false; savedMsg('Збережено'); go('#/idk');
+};
+ROUTES.idkhdr = () => {
+  if (!isLead()) return denied();
+  const H = idkHdr();
+  const body = fArea('Погоджено (ліворуч) — посада', 'apprL', H.apprL) + fInp('ПІБ', 'apprLName', H.apprLName) +
+    fArea('Затверджую (праворуч) — посада', 'apprR', H.apprR) + fInp('ПІБ', 'apprRName', H.apprRName) +
+    fInp('Назва в заголовку («…працівників категорії «А» …»)', 'subj', H.subj) +
+    fInp('Підпис 1 — посада', 'resp', H.resp) + fInp('ПІБ', 'respName', H.respName) +
+    fInp('Підпис 2 — посада', 'dep', H.dep) + fInp('ПІБ', 'depName', H.depName);
+  return page('Реквізити протоколу ІДК', form('idkhdr', 'h', body), '#/idk');
+};
+FORMS.idkhdr = async d => {
+  const m = {}; Object.keys(IDK_HDR).forEach(k => (m[k] = d[k] ?? ''));
+  await saveSetting('idkhdr', JSON.stringify(m)); UI.dirty = false; savedMsg('Збережено'); go('#/idk');
+};
 ROUTES.idkform = (pid, key) => {
   if (!isLead()) return denied();
-  const p = get('Персонал', pid); if (!p) return notFound();
+  const p = pid === IDK_FON ? { id: IDK_FON, pib: 'ФОН (фоновий дозиметр)' } : get('Персонал', pid); if (!p) return notFound();
   const k = /^\d{4}-[1-4]$/.test(key || '') ? key : idkKey(+today().slice(0, 4), qOfDate(today()));
   const r = idkData(pid)[k] || {};
   const d = UI.draft['idk:' + pid] || { year: k.slice(0, 4), q: k.slice(5), dose: r.dose ?? '', date: r.date || today(), note: r.note || '' };
@@ -689,7 +763,7 @@ ROUTES.idkform = (pid, key) => {
     `<div class="grid2">${fNum('Доза, мЗв', 'dose', d.dose, { req: true, step: '0.001' })}${fInp('Дата вимірювання / отримання результату', 'date', d.date, { type: 'date' })}</div>` +
     fInp('Примітка (№ дозиметра ТЛД, організація)', 'note', d.note) +
     `<p class="small mute">Порожня доза при збереженні видаляє запис за квартал.</p>`;
-  return page('ІДК · внесення дози', form('idk', pid, body), '#/person/' + pid);
+  return page('ІДК · внесення дози', form('idk', pid, body), pid === IDK_FON ? '#/idk' : '#/person/' + pid);
 };
 FORMS.idk = async (d, pid) => {
   const all_ = idkData(pid), k = idkKey(d.year, d.q);
@@ -697,7 +771,7 @@ FORMS.idk = async (d, pid) => {
   await saveSetting('idk:' + pid, JSON.stringify(all_));
   delete UI.draft['idk:' + pid]; UI.dirty = false;
   const sum = idkYearSum(pid, +d.year), lim = idkLimit();
-  savedMsg(sum > lim ? `Збережено. Увага: сума за ${d.year} — ${fmtN3(sum)} мЗв, перевищено ${lim} мЗв` : 'Дозу збережено'); go('#/person/' + pid);
+  savedMsg(sum > lim ? `Збережено. Увага: сума за ${d.year} — ${fmtN3(sum)} мЗв, перевищено ${lim} мЗв` : 'Дозу збережено'); go(pid === IDK_FON || UI.idkBack ? '#/idk' : '#/person/' + pid); UI.idkBack = false;
 };
 ROUTES.person = id => {
   if (isVisitor()) return denied();
@@ -795,6 +869,7 @@ ROUTES.certs = () => {
   let h = `<p class="small mute">Рівень кваліфікації та дата закінчення. <span class="bad">Червоний</span> — прострочено, <span class="warn">жовтий</span> — ≤ 60 днів.</p>`;
   h += card('Матриця сертифікатів', table(['ПІБ', ...CERT_TYPES.map(m => m.replace('Спрямовані хвилі', 'GW').replace('Радіаційна безпека', 'РБ'))], rows, 'center first'));
   if (exp.length) h += card('Потребують переатестації', exp.map(c => `<div class="item"><b>${esc(personName(c.personId))} — ${esc(c.method)}</b>${badge(validity(c.validTo).text, validity(c.validTo).cls)}</div>`).join(''));
+  h += `<div class="row gap"><a class="btn primary" href="#/gen/certs">⬇ Експорт сертифікатів (.xlsx)</a></div>`;
   if (isLead()) h += fab('#/certform/new');
   return page('Сертифікати НК', h, '#/menu');
 };
