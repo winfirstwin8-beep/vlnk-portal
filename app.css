@@ -376,3 +376,4 @@ details.fold[open] > summary { margin-bottom: 8px; }
 .filetile.big{padding:14px 16px;margin:4px 0 12px}.filetile.big .ft-ic{width:56px;height:66px;font-size:14px}.filetile.big .ft-body b{font-size:16.5px}
 @media (max-width:340px){.filetile .ft-go{display:none}}
 .kitrow{padding:7px 0;border-bottom:1px solid var(--line)}.kitrow:last-of-type{border-bottom:0}.kitrow.miss{background:linear-gradient(90deg,var(--bad-bg),transparent 70%);margin:0 -8px;padding:7px 8px;border-radius:6px}.kitrow ul{margin:4px 0 0 20px}
+.btn.btn-pastel{background:#fdf1b8;color:#6b5300;border:1px solid #f0d97a}.btn.btn-pastel:hover{background:#fbe99a}@media (prefers-color-scheme:dark){.btn.btn-pastel{background:#5a4d1c;color:#fbe9a6;border-color:#7a6826}}
