@@ -42,6 +42,7 @@ function render() {
   updateBell();
   const rf = $('form[data-form=report]'); if (rf && typeof updateGenPreview === 'function') updateGenPreview(rf);
   if (typeof loadEqPhotos === 'function') loadEqPhotos();
+  if (typeof loadRepPhotos === 'function') loadRepPhotos();
   const back = $('#back');
   back.hidden = !HEAD.back;
   back.onclick = () => go(HEAD.back);

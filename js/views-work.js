@@ -995,7 +995,7 @@ function reportItem(r) {
   return `<a class="item" href="#/report/${esc(r.id)}">
     <div class="row between"><b>${isSummary(r) && r.periodFrom ? uaDate(r.periodFrom) + ' – ' : ''}${uaDate(r.date)} · ${esc(objShort(r.objectId))}</b>${r.brigade ? badge('Б' + esc(r.brigade)) : ''}</div>
     <span class="small mute">${isSummary(r) ? badge('підсумок за період', 'warn') + ' ' + c.workers.length + ' чол.' : `${c.workers.length} чол. × ${c.h} год${num(r.km) ? ' · ' + fmtN(num(r.km)) + ' км' : ''}`}</span>
-    <span class="small">${truthy(r.travel) ? badge('переїзд', 'warn') : (vol || '<span class="mute">обсяг не вказано</span>')} ${r.problems ? badge('⚠ проблеми', 'bad') : ''} ${isRepeatReport(r) ? badge('⚠ повторний звіт', 'bad') : hasRepeat(r) ? badge('є повторний', 'warn') : ''}</span>
+    <span class="small">${truthy(r.travel) ? badge('переїзд', 'warn') : (vol || '<span class="mute">обсяг не вказано</span>')} ${r.problems ? badge('⚠ проблеми', 'bad') : ''}${repPhotos(r.id).length ? ' ' + badge('📷 ' + repPhotos(r.id).length) : ''} ${isRepeatReport(r) ? badge('⚠ повторний звіт', 'bad') : hasRepeat(r) ? badge('є повторний', 'warn') : ''}</span>
     <span class="small mute">Подав: ${esc(repAuthor(r))}${repWhen(r) ? ' · ' + fmtDT(repWhen(r)) : ''}</span></a>`;
 }
 
@@ -1037,6 +1037,7 @@ ROUTES.report = id => {
     ['Електростанція', r.genId && (num(r.genHours) || num(r.genRefuel)) ? (() => { const x = genDay(r.genId, r.genHours, r.genRefuel === '' || r.genRefuel == null ? num(r.genHours) * genNorm(get('Генератори', r.genId), r.date) : r.genRefuel, r.date, r.id, num(r.updatedAt)); return esc((get('Генератори', r.genId) || {}).name || '') + ' · ' + esc(r.genFuel || c.genFuel) + (x ? `<br>заправлено: <b>${fmtN3(x.refuel)} л</b><br>витрачено мотогодин: <b>${fmtN(num(r.genHours))}</b><br>витрачено палива: <b>${fmtN3(x.cons)} л</b>` : ''); })() : '']
   ]));
   if (r.problems) h += card('Проблемні питання та затримки', `<p class="pre">${esc(r.problems)}</p>`);
+  { const ph = repPhotos(r.id); if (ph.length) h += card('Фото з місця робіт · ' + ph.length, `<div class="rphgrid">${ph.map(p => `<div class="rph"><img class="rphimg" data-ph="${esc(p.id)}" alt="фото" data-act="rphview" data-id="${esc(p.id)}"></div>`).join('')}</div>`); }
   if (r.note) h += card('Примітка', `<p class="pre">${esc(r.note)}</p>`);
   const ed = repEditor(r), edited = num(r.createdAt) && num(r.updatedAt) - num(r.createdAt) > 60000;
   const log = repEditLog(r);
@@ -1234,9 +1235,72 @@ ROUTES.reportform = (id = 'new') => {
   }
   if (src) body = `<div class="note">✏️ Редагування звіту, створеного: <b>${esc(repAuthor(src))}</b>, ${esc(fmtDT(repWhen(src)))}.${repEditLog(src).length ? ` Останні зміни: ${esc(repEditLog(src).slice(-1)[0].name)}, ${esc(fmtDT(repEditLog(src).slice(-1)[0].at))}.` : ''} Ваші зміни буде зафіксовано (${esc(meShort())}).</div>` + body;
   if (onVac.length) body = `<div class="note warn">У відпустці на ${uaDate(d.date)}: ${onVac.map(w => esc(shortName(personName(w)))).join(', ')}. Перевірте склад.</div>` + body;
-  body += fArea('Проблемні питання та затримки в роботі', 'problems', d.problems, { ph: 'Простої, відсутність фронту робіт, несправності…' }) + fArea('Примітка', 'note', d.note, { rows: 2 });
+  body += fArea('Проблемні питання та затримки в роботі', 'problems', d.problems, { ph: 'Простої, відсутність фронту робіт, несправності…' }) + repPhotoField(key, src) + fArea('Примітка', 'note', d.note, { rows: 2 });
   return page(id === 'new' ? 'Новий звіт' : 'Редагування звіту', form('report', id, body, src ? { del: { t: 'Звіти', id, back: '#/reports' } } : {}), src ? '#/report/' + id : '#/reports');
 };
+// ── фото до звіту: прикріплення з телефону (камера або галерея)
+const REPPH_PEND = {}; // key форми → [{id, file, url}] — ще не збережені фото
+function repPhotoField(key, src) {
+  return `<div class="f rphf"><span>Фото з місця робіт</span>
+    <div class="rphgrid" id="rphgrid">${repPhotoGrid(key, src)}</div>
+    <div class="row gap"><label class="btn ghost small rphbtn">📷 Зробити фото<input type="file" accept="image/*" capture="environment" data-rph="${esc(key)}" hidden></label>
+    <label class="btn ghost small rphbtn">🖼 З галереї<input type="file" accept="image/*" multiple data-rph="${esc(key)}" hidden></label></div>
+    <small>Фото стискаються до 2000 px і зберігаються після натискання «Зберегти».</small></div>`;
+}
+function repPhotoGrid(key, src) {
+  const have = src ? repPhotos(src.id) : [];
+  const pend = REPPH_PEND[key] || [];
+  if (!have.length && !pend.length) return '<span class="small mute">Фото не додано</span>';
+  return have.map(p => `<div class="rph"><img class="rphimg" data-ph="${esc(p.id)}" alt="фото" data-act="rphview" data-id="${esc(p.id)}">${canDelRepPh(p) ? `<button type="button" class="rphx" data-act="rphdel" data-id="${esc(p.id)}" data-key="${esc(key)}" aria-label="Видалити фото">×</button>` : ''}</div>`).join('') +
+    pend.map(x => `<div class="rph pend"><img src="${x.url}" alt="нове фото"><span class="rphnew">нове</span><button type="button" class="rphx" data-act="rphunpend" data-id="${esc(x.id)}" data-key="${esc(key)}" aria-label="Прибрати фото">×</button></div>`).join('');
+}
+const canDelRepPh = p => isLead() || (p.authorId && p.authorId === ME.personId);
+function refreshRepGrid(key) {
+  const g = $('#rphgrid'); if (!g) return;
+  const id = key.split(':')[1]; g.innerHTML = repPhotoGrid(key, id && id !== 'new' ? get('Звіти', id) : null); loadRepPhotos();
+}
+document.addEventListener('change', e => {
+  const el = e.target; if (!el.dataset || !el.dataset.rph || !el.files || !el.files.length) return;
+  e.stopImmediatePropagation();
+  const key = el.dataset.rph, list = REPPH_PEND[key] || (REPPH_PEND[key] = []);
+  let bad = 0;
+  [...el.files].forEach(f => { if (!/^image\//.test(f.type) && !/\.(jpe?g|png|heic|heif|webp)$/i.test(f.name)) { bad++; return; } list.push({ id: uid(), file: f, url: URL.createObjectURL(f) }); });
+  el.value = ''; UI.dirty = true;
+  if (bad) toast('Пропущено файлів (не фото): ' + bad);
+  refreshRepGrid(key);
+}, true);
+ACTS.rphunpend = d => { const l = REPPH_PEND[d.key] || []; const i = l.findIndex(x => x.id === d.id); if (i >= 0) { URL.revokeObjectURL(l[i].url); l.splice(i, 1); } refreshRepGrid(d.key); };
+ACTS.rphdel = async d => { if (!await ask('Видалити це фото зі звіту?', 'Видалити')) return; await remove('Протоколи', d.id); toast('Фото видалено'); refreshRepGrid(d.key); };
+ACTS.rphview = d => {
+  const url = PHCACHE.get(d.id); if (!url) return;
+  const p = get('Протоколи', d.id) || {};
+  const ov = document.createElement('div'); ov.className = 'phov';
+  ov.innerHTML = `<img src="${url}" alt="фото"><p>${uaDate(p.date)}${p.enteredBy ? ' · ' + esc(p.enteredBy) : ''}</p><div class="row gap"><button type="button" class="btn" data-act="protodl" data-id="${esc(p.id)}">⬇ Зберегти</button><button type="button" class="btn">Закрити</button></div>`;
+  ov.onclick = e => { if (!e.target.closest('[data-act]')) ov.remove(); }; document.body.appendChild(ov);
+};
+function loadRepPhotos() {
+  document.querySelectorAll('img.rphimg:not([src])').forEach(async img => {
+    const id = img.dataset.ph; if (PHCACHE.has(id)) { img.src = PHCACHE.get(id); return; }
+    const p = get('Протоколи', id); if (!p) return;
+    try { const f = await getRowFile('Протоколи', p); const url = 'data:' + f.mime + ';base64,' + f.data; PHCACHE.set(id, url); img.src = url; }
+    catch (e) { img.alt = DB.upTasks.has(id) ? '⏳ відправляється' : 'фото недоступне'; img.classList.add('phmiss'); }
+  });
+}
+/** Після збереження звіту: створює записи фото і ставить файли в чергу на Диск. */
+async function saveRepPhotos(key, rep) {
+  const l = REPPH_PEND[key] || []; if (!l.length) return 0;
+  let n = 0;
+  for (const x of l) {
+    try {
+      const row = await save('Протоколи', { method: REPPH_METHOD, number: '', date: rep.date, objectId: rep.objectId, taskId: rep.taskId || '', brigade: String(rep.brigade || ''), note: '', verBy: 'rep:' + rep.id, enteredBy: meShort(), authorId: ME.personId || '' });
+      await queueProto(row.id, x.file); n++;
+    } catch (e) { toast('Фото не додано: ' + e.message); }
+    URL.revokeObjectURL(x.url);
+  }
+  delete REPPH_PEND[key];
+  return n;
+}
+
 ONCHANGE.report = (d, f) => {
   const v = volFromForm(d); if (v.length) d.vol = v;
   if (f === 'date' || f === 'brigade') { fillFromBrigade(d); autoTask(d); }
@@ -1286,9 +1350,10 @@ FORMS.report = async (d, id) => {
   UI.savingRep = true; // поки зберігається — форма не перемальовується (інакше спрацює перехід до «вже поданого» звіту)
   let saved;
   try { saved = await save('Звіти', row); } finally { UI.savingRep = false; }
+  const nph = await saveRepPhotos('report:' + id, saved);
   delete UI.draft['report:' + id]; UI.dirty = false; UI.allowNewRep = false;
   UI.savedRep = { id: saved.id, at: now, edit: !!src };
-  toast((src ? 'Зміни до звіту успішно збережено' : 'Ваш звіт успішно збережено') + ' · ' + fmtDT(now));
+  toast((src ? 'Зміни до звіту успішно збережено' : 'Ваш звіт успішно збережено') + (nph ? ' · фото: ' + nph : '') + ' · ' + fmtDT(now));
   go('#/report/' + saved.id);
 };
 
