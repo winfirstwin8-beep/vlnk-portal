@@ -28,7 +28,7 @@ ROUTES.tasks = () => {
     const mem = brigadeMembers(b);
     const tasks = list.filter(t => String(t.brigade) === String(n) && !isPendingAhead(t)).sort((a, c) => String(a.dateFrom).localeCompare(String(c.dateFrom)));
     // склад бригади — в одному рядку з назвою «Бригада N»; під ним — авто
-    const title = `${brName(n)} <span class="brmem">${mem.length ? '· ' + mem.map(id => esc(shortName(personName(id)))).join(', ') : '· склад не призначено'}</span>`;
+    const title = brigTitle(n, m);
     const info = b && b.carId ? `<p class="small mute">🚐 ${esc(carName(b.carId))}</p>` : '';
     // накази на відрядження — одразу під назвою бригади, перед складом
     // один наказ на всі виїзди бригади за місяць — одразу після напису «Бригада N»
@@ -39,6 +39,11 @@ ROUTES.tasks = () => {
   return page('Завдання', h);
 };
 
+/** «Бригада N · склад» — склад бригади на місяць одним рядком з назвою. */
+function brigTitle(n, m) {
+  const mem = brigadeMembers(brigadeOf(m, n));
+  return `<b>${brName(n)}</b> <span class="brmem">${mem.length ? '· ' + mem.map(id => esc(shortName(personName(id)))).join(', ') : '· склад не призначено'}</span>`;
+}
 /** Обʼєкти по бригадах за станом: «в роботі» — виконуються зараз, «плануються» — будуть виконуватись. */
 function tasksByStatus(view, inB) {
   const d = today();
@@ -51,7 +56,8 @@ function tasksByStatus(view, inB) {
   let any = false;
   for (const n of BRIGADES) {
     const ts = tasks.filter(t => String(t.brigade) === String(n)); if (!ts.length) continue; any = true;
-    h += card(brName(n) + ' · ' + ts.length, ts.map(taskItem).join(''));
+    const mm = view === 'work' ? ym(d) : (ts[0].month || ym(ts[0].dateFrom));
+    h += card(brigTitle(n, mm) + ` <span class="small mute">(${ts.length})</span>`, ts.map(taskItem).join(''));
   }
   return h + (any ? '' : empty(view === 'work' ? 'Зараз обʼєктів у роботі немає' : 'Запланованих обʼєктів немає'));
 }
@@ -229,6 +235,9 @@ ROUTES.plan = () => {
   const lead = isLead(), t = today();
   const nd = num(monthEnd(m).slice(8)), days = Array.from({ length: nd }, (_, i) => m + '-' + z2(i + 1));
   let h = `<p class="small mute">Склад бригад на місяць і розподіл бригад по обʼєктах на вахту з обсягами робіт.</p>` + monthNav('bmonth', m);
+  const pb = UI.pbrig || 'all';
+  const inP = n => pb === 'all' || String(pb) === String(n);
+  h = seg('pbrig', [['all', 'Усі'], ...BRIGADES.map(n => [n, n === 5 ? '5 рез.' : 'Б' + n])], pb).replace('class="seg"', 'class="seg wrap"') + h;
   if (lead) h += `<div class="row gap">${`<button class="btn primary" data-act="newshift" data-n="">+ Нова вахта</button>`}${`<button class="btn ghost" data-act="copybrig">Як у попередньому місяці</button>`}</div>`;
   // ── бригади на місяць
   const used = {};
@@ -236,7 +245,7 @@ ROUTES.plan = () => {
   const dup = Object.entries(used).filter(([, v]) => v.length > 1);
   const free = staff().filter(p => !used[p.id]);
   let bh = dup.length ? `<div class="note warn">Працівник у кількох бригадах: ${dup.map(([id, v]) => esc(shortName(personName(id))) + ' (' + v.join(', ') + ')').join('; ')}</div>` : '';
-  bh += '<div class="brgrid">' + BRIGADES.map(n => {
+  bh += '<div class="brgrid">' + BRIGADES.filter(inP).map(n => {
     const b = brigadeOf(m, n), mem = brigadeMembers(b);
     const ws = brigWarnings(m, n, b);
     return `<div class="brcol${+n === 5 ? ' res' : ''}"><div class="row between"><b>${brName(n)}</b>${+n === 5 ? badge('резерв', 'warn') : ''}</div>
@@ -245,13 +254,13 @@ ROUTES.plan = () => {
       ${ws.length ? `<div class="brwarn">${ws.map(([c, x]) => `<div class="${c}">${esc(x)}</div>`).join('')}</div>` : ''}
       ${lead ? `<a class="small" href="#/brigades">Змінити склад ›</a>` : ''}</div>`;
   }).join('') + '</div>';
-  if (free.length) bh += `<p class="small mute">Не розподілені: ${free.map(p => esc(shortName(p.pib))).join(', ')}</p>`;
+  if (free.length && pb === 'all') bh += `<p class="small mute">Не розподілені: ${free.map(p => esc(shortName(p.pib))).join(', ')}</p>`;
   h += card('Бригади на місяць', bh, '<span class="small mute">працівник — лише в одній бригаді; Бригада 5 — резерв</span>');
   // ── графік вахт
   const tasks = all('Завдання').filter(x => taskStatus(x) !== 'перенесено' && String(x.dateFrom) <= monthEnd(m) && String(x.dateTo || x.dateFrom) >= m + '-01');
   const col = d => num(d.slice(8)) + 1; // +1 — перша колонка з назвою бригади
   let g = `<div class="gantt" style="--nd:${nd}"><div class="gh"></div>` + days.map(d => { const wd = new Date(d + 'T12:00:00').getDay(); return `<div class="gh${wd === 0 || wd === 6 ? ' we' : ''}${d === t ? ' td' : ''}">${num(d.slice(8))}</div>`; }).join('');
-  BRIGADES.forEach((n, ri) => {
+  BRIGADES.filter(inP).forEach((n, ri) => {
     const b = brigadeOf(m, n), row = ri + 2;
     g += `<div class="gn" style="grid-row:${row}"><b>${n === 5 ? 'Бригада 5' : 'Бригада ' + n}</b>${b && b.carId ? `<small>${esc(carName(b.carId))}</small>` : ''}</div>`;
     g += `<div class="gbg" style="grid-row:${row};grid-column:2/span ${nd}"></div>`;
@@ -268,10 +277,10 @@ ROUTES.plan = () => {
   g += '</div>';
   h += card('Графік вахт', `<div class="gwrap">${g}</div><p class="small mute"><span class="lg l1"></span> заплановано / в роботі <span class="lg l2"></span> завершено <span class="lg l3"></span> відпустка члена бригади · натисніть на смугу, щоб відкрити завдання</p>`);
   // ── вахти по бригадах з обсягами
-  h += card('Вахти за ' + monthName(m), BRIGADES.map(n => {
+  h += card('Вахти за ' + monthName(m), BRIGADES.filter(inP).map(n => {
     const shs = brigShifts(m, n);
     if (!shs.length && !lead) return '';
-    return `<div class="row between brhead"><b>${brName(n)}</b>${lead ? `<button class="btn small ghost" data-act="newshift" data-n="${n}">+ вахта</button>` : ''}</div>` +
+    return `<div class="row between brhead"><div>${brigTitle(n, m)}</div>${lead ? `<button class="btn small ghost" data-act="newshift" data-n="${n}">+ вахта</button>` : ''}</div>` +
       (shs.length ? shs.map(s => shiftHead(s, lead) + s.tasks.map(taskItem).join('')).join('') : '<p class="small mute">вахт немає</p>');
   }).join(''));
   return page('Планування', h, '#/menu');
