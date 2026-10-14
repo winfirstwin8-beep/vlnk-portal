@@ -99,12 +99,58 @@ function taskItem(t) {
     ${objMeta(o)}
     <span class="small mute">${esc(t.workType || '')}${t.requestNo ? (t.workType ? ' · ' : '') + 'заявка № ' + esc(t.requestNo) : ''}${t.orderNo ? ' · наказ № ' + esc(t.orderNo) : ''}</span>
     <span class="small">${methodsOf(t.methods).map(x => badge(esc(x))).join(' ')} ${t.diameters ? 'Ø ' + esc(arr(t.diameters).join(', ')) : ''}</span>
-    ${fact.n || Object.keys(plan).length ? `<span class="small mute">Виконано/план: ${donePlanText(fact, plan, t.methods)}${fact.n ? ' · ' + fact.n + ' зв.' : ''}</span>` : ''}
-    ${!isVisitor() ? `<div class="tiprot">${(n => n ? `<span class="small mute">протоколів: ${n}</span>` : '')(all('Протоколи').filter(p => p.objectId === t.objectId && (p.taskId === t.id || (p.date >= t.dateFrom && p.date <= (t.dateTo || t.dateFrom)))).length)}<span role="button" tabindex="0" class="btn small btn-pastel" data-act="protoreg" data-id="${esc(t.id)}">⬆ Завантажити протокол</span></div>` : ''}
+    <div class="tivol">${fact.n || Object.keys(plan).length ? `<span class="small mute">Виконано/план: ${donePlanText(fact, plan, t.methods)}${fact.n ? ' · ' + fact.n + ' зв.' : ''}</span>` : '<span></span>'}${!isVisitor() ? matBtnHtml(t) : ''}</div>
+    ${!isVisitor() ? `<div class="tiprot">${(n => n ? `<span class="small mute">протоколів: ${n}</span>` : '')(protoRows().filter(p => p.objectId === t.objectId && (p.taskId === t.id || (p.date >= t.dateFrom && p.date <= (t.dateTo || t.dateFrom)))).length)}<span role="button" tabindex="0" class="btn small btn-pastel" data-act="protoreg" data-id="${esc(t.id)}">⬆ Завантажити протокол</span></div>` : ''}
   </a></div>`;
 }
 
 ACTS.protoreg = d => go('#/protocols/' + d.id);
+/** Кнопка «📎 Матеріали» в картці обʼєкта: PDF-файли, що стосуються виконання робіт на обʼєкті. */
+function matBtnHtml(t) {
+  const n = objMats(t.objectId).length;
+  return `<span role="button" tabindex="0" class="btn small ghost matbtn" data-act="objmat" data-id="${esc(t.id)}" title="PDF-матеріали до робіт на обʼєкті">📎 Матеріали${n ? ' · ' + n : ''}</span>`;
+}
+ACTS.objmat = d => { UI.matBack = location.hash && !location.hash.startsWith('#/objmat') ? location.hash : (UI.matBack || '#/tasks'); go('#/objmat/' + d.id); };
+ROUTES.objmat = tid => {
+  if (isVisitor()) return denied();
+  const t = get('Завдання', tid); if (!t) return notFound();
+  const o = get('Обʼєкти', t.objectId) || {};
+  const list = objMats(t.objectId);
+  const back = UI.matBack || '#/tasks';
+  let h = `<div class="note">${esc(o.short || '')}${o.name ? ' · ' + esc(o.name) : ''}<br><span class="small">${brName(t.brigade)} · ${uaDate(t.dateFrom)} – ${uaDate(t.dateTo || t.dateFrom)}</span></div>`;
+  h += card('Матеріали до робіт на обʼєкті' + (list.length ? ' · ' + list.length : ''), list.length ? list.map(matItem).join('') : empty('Матеріалів ще немає'));
+  const dr = UI.draft['objmat:' + tid] || {};
+  h += card('Завантажити PDF', `<form class="form" data-form="objmat" data-id="${esc(tid)}" novalidate>
+    ${fInp('Назва документа', 'number', dr.number || '', { req: true, ph: 'напр. Технологічна карта, схема стиків, проєкт' })}
+    <div class="grid2">${fInp('Дата', 'date', dr.date || today(), { type: 'date' })}${fInp('Примітка', 'note', dr.note || '', { ph: 'необовʼязково' })}</div>
+    <label class="f"><span>Файл PDF *</span><input type="file" name="file" accept="application/pdf,.pdf"><small>До 15 МБ. Зберігається на Google Диску в папці «Протоколи НК / ${esc(o.short || 'обʼєкт')}» і доступний усім працівникам на сторінках «Завдання» і «Планування».</small></label>
+    <div class="form-actions"><button type="submit" class="btn primary">⬆ Завантажити</button></div></form>`);
+  return page('Матеріали · ' + (o.short || ''), h, back);
+};
+function matItem(p) {
+  const pend = DB.upTasks.has(p.id);
+  const canDel = isLead() || (p.authorId && p.authorId === ME.personId);
+  const has = !!(p.file || p.fileId) || pend;
+  return `<div class="item"><div class="row between"><b>📄 ${esc(p.number || 'Документ')}</b>${badge('PDF', 'pri')}</div>
+    <span class="small mute">${uaDate(p.date)}${p.brigade ? ' · ' + brName(p.brigade) : ''}${p.enteredBy ? ' · завантажив: ' + esc(p.enteredBy) : ''}${p.note ? ' · ' + esc(p.note) : ''}</span>
+    <div class="row gap order">${has ? `<button type="button" class="btn small primary" data-act="protodl" data-id="${esc(p.id)}">⬇ Відкрити / завантажити</button>${DB.mailQ.has(p.id) ? badge('✉ лист у черзі', 'warn') : `<button type="button" class="btn small ghost" data-act="protomail" data-id="${esc(p.id)}">✉ На пошту</button>`}${navigator.canShare ? `<button type="button" class="btn small ghost" data-act="protoshare" data-id="${esc(p.id)}">↗ Поділитися</button>` : ''}` : '<span class="small mute">файл не додано</span>'}
+    ${pend ? badge('⏳ відправляється', 'warn') : ''}${canDel ? `<button type="button" class="btn small ghost" data-act="del" data-t="Протоколи" data-id="${esc(p.id)}" data-back="${esc(location.hash)}">Видалити</button>` : ''}</div></div>`;
+}
+ONCHANGE.objmat = (d, f) => { UI.draft['objmat:' + f.dataset.id] = d; };
+FORMS.objmat = async (d, tid, f) => {
+  const t = get('Завдання', tid); if (!t) return toast('Завдання не знайдено');
+  const file = f.querySelector('input[name=file]').files[0];
+  if (!String(d.number || '').trim()) return toast('Вкажіть назву документа');
+  if (!file) return toast('Оберіть PDF-файл');
+  if (!/pdf/i.test(file.type) && !/\.pdf$/i.test(file.name)) return toast('Потрібен файл PDF');
+  delete d.file;
+  const row = await save('Протоколи', { method: MAT_METHOD, number: String(d.number).trim(), date: d.date || today(), note: d.note || '', objectId: t.objectId, taskId: t.id, brigade: String(t.brigade || ''), enteredBy: meShort(), authorId: ME.personId || '' });
+  try {
+    const r = await queueProto(row.id, file);
+    toast(r === 'saved' ? 'Файл збережено' : navigator.onLine ? 'Файл відправляється…' : 'Файл збережено на телефоні — відправиться, коли зʼявиться інтернет');
+  } catch (e) { toast('Файл не додано: ' + e.message); }
+  delete UI.draft['objmat:' + tid]; UI.dirty = false; render();
+};
 /** Обʼєкт завдання: повна назва, населений пункт, відповідальний від замовника з телефоном. */
 function taskObjCard(oid, t) {
   const o = get('Обʼєкти', oid); if (!o) return '';

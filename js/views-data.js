@@ -82,7 +82,7 @@ ACTS.protovdl = async d => {
   } catch (e) { toast(e.message); }
 };
 function protoSection(oid, taskId) {
-  const all_ = all('Протоколи').filter(p => p.objectId === oid)
+  const all_ = protoRows().filter(p => p.objectId === oid)
     .sort((a, b) => String(b.date).localeCompare(String(a.date)) || String(b.number).localeCompare(String(a.number), 'uk', { numeric: true }));
   const f = UI.pmeth && all_.some(p => p.method === UI.pmeth) ? UI.pmeth : 'all';
   const list = f === 'all' ? all_ : all_.filter(p => p.method === f);
@@ -109,7 +109,7 @@ FORMS.proto = async (d, oid, f) => {
   const file = f.querySelector('input[name=file]').files[0];
   if (!need(d, [['method', 'метод'], ['number', '№ протоколу'], ['date', 'дата']])) return;
   if (!file) return toast('Оберіть файл протоколу');
-  const dup = all('Протоколи').find(p => p.objectId === oid && p.method === d.method && String(p.number).trim() === String(d.number).trim());
+  const dup = protoRows().find(p => p.objectId === oid && p.method === d.method && String(p.number).trim() === String(d.number).trim());
   if (dup && !await ask(`Протокол ${d.method} № ${d.number} на цьому обʼєкті вже є. Додати ще один?`)) return;
   delete d.file;
   const by = ME.personId && get('Персонал', ME.personId) ? meShort() : String(d.enteredBy || '').trim();
@@ -124,7 +124,7 @@ FORMS.proto = async (d, oid, f) => {
 };
 /** Наступний № протоколу для обʼєкта й методу (підказка; можна змінити). */
 function nextProtoNo(oid, method) {
-  const ns = all('Протоколи').filter(p => p.objectId === oid && (!method || p.method === method)).map(p => parseInt((String(p.number).match(/\d+/) || ['0'])[0], 10)).filter(n => n > 0);
+  const ns = protoRows().filter(p => p.objectId === oid && (!method || p.method === method)).map(p => parseInt((String(p.number).match(/\d+/) || ['0'])[0], 10)).filter(n => n > 0);
   return ns.length ? String(Math.max(...ns) + 1) : '1';
 }
 /** Реєстрація протоколів НК по обʼєктах: форма + реєстр. Файл зберігається на Диску в папці «Протоколи НК / <коротка назва обʼєкта>». */
@@ -164,12 +164,12 @@ ROUTES.protocols = tid => {
       ${fInp('Примітка', 'note', dr.note || '', { ph: 'напр. стики № 12–24, Ø 530' })}
       <div class="form-actions"><button type="submit" class="btn primary">Зареєструвати</button></div></form>`);
   }
-  let list = all('Протоколи').slice();
+  let list = protoRows().slice();
   if (fo) list = list.filter(p => p.objectId === fo);
   if (m) list = list.filter(p => String(p.date).slice(0, 7) === m);
   list.sort((a, b) => String(b.date).localeCompare(String(a.date)) || String(b.number).localeCompare(String(a.number), 'uk', { numeric: true }));
-  const months = [...new Set(all('Протоколи').map(p => String(p.date).slice(0, 7)).filter(Boolean))].sort().reverse();
-  const objs = [...new Set(all('Протоколи').map(p => p.objectId))].map(id => [id, objShort(id)]).sort((a, b) => String(a[1]).localeCompare(String(b[1]), 'uk'));
+  const months = [...new Set(protoRows().map(p => String(p.date).slice(0, 7)).filter(Boolean))].sort().reverse();
+  const objs = [...new Set(protoRows().map(p => p.objectId))].map(id => [id, objShort(id)]).sort((a, b) => String(a[1]).localeCompare(String(b[1]), 'uk'));
   h += `<div class="filters">${fSel('Обʼєкт', 'rf', objs, fo, { none: 'Усі обʼєкти' }).replace('name="rf"', 'data-set="regObjF"')}${fSel('Місяць', 'rm', months.map(x => [x, monthName(x)]), m, { none: 'Усі місяці' }).replace('name="rm"', 'data-set="regMonth"')}</div>`;
   h += card('Реєстр протоколів · ' + list.length, list.length ? list.slice(0, UI.plimit || 30).map(p => protoItem(p, true)).join('') + (list.length > (UI.plimit || 30) ? `<button class="btn ghost wide" data-act="pmore">Показати ще</button>` : '') : empty('Протоколів не знайдено'));
   return page('Протоколи НК', h, tid ? '#/tasks' : '#/menu');
