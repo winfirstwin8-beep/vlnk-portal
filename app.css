@@ -253,7 +253,7 @@ fieldset.bq.bad { border-color: var(--bad); background: var(--bad-bg); }
 .login .login-logo { width: min(240px, 70vw); height: auto; display: block; margin: 0 auto 8px; background: #f0f2f3; padding: 12px 16px; border-radius: 18px; box-sizing: content-box; }
 
 /* склад бригади в заголовку картки */
-.card-h h2 .brmem { font-weight: 400; font-size: 13px; color: var(--mute, #667); }
+.card-h h2 .brmem, .brhead .brmem { font-weight: 400; font-size: 13px; color: var(--mute, #667); }
 
 /* виразні дати завдання */
 .tdates { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 12px; box-sizing: border-box; max-width: 100%; margin: 6px 0 4px; padding: 6px 10px; border-radius: 10px; background: var(--line); border-left: 4px solid var(--mute); }
