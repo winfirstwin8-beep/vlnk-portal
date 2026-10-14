@@ -380,3 +380,5 @@ details.fold[open] > summary { margin-bottom: 8px; }
 .idktbl{width:100%;table-layout:fixed}.idktbl th,.idktbl td{padding:5px 3px;font-size:13px;text-align:center}.idktbl th:first-child,.idktbl td:first-child{width:46px;text-align:left}
 
 .idkprot{width:100%;font-size:13px}.idkprot th,.idkprot td{padding:6px 4px;text-align:center;vertical-align:middle}.idkprot th.l,.idkprot td.l{text-align:left}.idkprot td:first-child{width:22px}.idkprot th{white-space:normal}.idkprot td:nth-child(n+3){width:11%;white-space:nowrap;font-size:12px;padding:6px 2px}.idkprot tr.fon td{background:var(--soft,rgba(127,127,127,.08))}
+
+.tivol{display:flex;align-items:flex-start;justify-content:space-between;gap:8px}.tivol>.small{flex:1}.tivol .matbtn{flex:none;white-space:nowrap}
