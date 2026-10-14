@@ -20,7 +20,7 @@ function go(h) { if (location.hash === h) render(); else location.hash = h; }
 const NAV_GROUP = {
   home: 'home', tasks: 'tasks', taskform: 'tasks', tobj: 'tasks', brigades: 'tasks',
   reports: 'reports', reportform: 'reports', report: 'reports',
-  mon: 'mon'
+  mon: 'mon', notifs: 'home'
 };
 
 function render() {
@@ -39,6 +39,7 @@ function render() {
   $('#main').innerHTML = html;
   $('#title').textContent = HEAD.title;
   updateChip();
+  updateBell();
   const rf = $('form[data-form=report]'); if (rf && typeof updateGenPreview === 'function') updateGenPreview(rf);
   if (typeof loadEqPhotos === 'function') loadEqPhotos();
   const back = $('#back');
@@ -375,7 +376,7 @@ async function logout() {
   if (DB.pending && !await ask(`У черзі ${DB.pending} неперевантажених змін. Вони будуть втрачені. Вийти?`)) return;
   if (MODE === 'live' && navigator.onLine) { try { await api({ action: 'logout' }, 8000); } catch (e) { /* неважливо */ } }
   if (MODE === 'live') { await IDB.clear('rows'); await IDB.clear('outbox'); await IDB.clear('meta'); }
-  LS.set('token', null); LS.set('user', null); LS.set('mode', null);
+  LS.set('token', null); LS.set('user', null); LS.set('mode', null); LS.set('notifs', null);
   location.hash = ''; location.reload();
 }
 ACTS.logout = logout;
@@ -396,6 +397,7 @@ async function start() {
     ME = { ...DEMO_USER }; LS.set('user', JSON.stringify(ME));
     await seedDemo(); await IDB.putMany('meta', [['demoVer', DEMO_VER]]);
   }
+  if (MODE === 'demo' && LS.get('notifs') === null) notifDemo();
   $('#login').hidden = true; $('#app').hidden = false;
   const seen = LS.get('seenVer');
   if (seen && cmpVer(seen, VER) < 0) UI.whatsNew = Object.keys(CHANGES).filter(v => cmpVer(v, seen) > 0 && cmpVer(v, VER) <= 0).sort((a, b) => cmpVer(b, a));
@@ -554,6 +556,85 @@ ROUTES.menu = () => {
   return page('Меню', `<div class="tiles">${tiles.filter(t => t[3]).map(t => `<a href="${t[0]}"><span>${t[1]}</span>${t[2]}</a>`).join('')}</div>`);
 };
 
+// ═════════ СПОВІЩЕННЯ ═════════
+function updateBell() {
+  const b = $('#bell'); if (!b) return;
+  const n = notifUnread();
+  b.hidden = !ME;
+  b.querySelector('.bdg').textContent = n ? (n > 99 ? '99+' : String(n)) : '';
+  b.classList.toggle('has', !!n);
+  b.title = n ? 'Сповіщення: нових ' + n : 'Сповіщення';
+}
+ACTS.notifs = () => go('#/notifs');
+const NOTIF_KIND = { task: ['Завдання', 'pri'], news: ['Новина', 'ok'], mat: ['Матеріали', 'warn'] };
+ROUTES.notifs = () => {
+  const list = notifList();
+  const filt = UI.nkind || 'all';
+  const shown = list.filter(x => filt === 'all' || x.kind === filt);
+  const p = notifPrefs();
+  const sysOk = 'Notification' in window;
+  const perm = sysOk ? Notification.permission : 'unsupported';
+  let h = '';
+  const sysTxt = !sysOk ? '<span class="mute">цей браузер не підтримує сповіщення — встановіть портал на головний екран</span>'
+    : perm === 'denied' ? '<span class="bad">заборонено в налаштуваннях браузера/телефону — дозвольте сповіщення для сайту порталу</span>'
+    : p.sys && perm === 'granted' ? '<span class="ok">увімкнено</span>' : '<span class="mute">вимкнено</span>';
+  h += card('Налаштування сповіщень', `
+    <div class="f"><span>Сповіщення на телефоні (як у месенджерах)</span><div class="small">${sysTxt}</div>
+      <div class="row gap">${sysOk && perm !== 'denied' ? (p.sys && perm === 'granted' ? '<button type="button" class="btn small ghost" data-act="notifsys" data-v="0">Вимкнути</button><button type="button" class="btn small ghost" data-act="notiftest">Перевірити</button>' : '<button type="button" class="btn small primary" data-act="notifsys" data-v="1">🔔 Увімкнути</button>') : ''}</div></div>
+    <div class="f"><span>Зміни завдань по обʼєктах</span>${seg('np_tasks', [['mine', 'Мої бригади'], ['all', 'Усі бригади'], ['off', 'Вимкнено']], p.tasks).replace(/data-act="set"/g, 'data-act="notifpref"')}</div>
+    <div class="f"><span>Нові новини</span>${seg('np_news', [['1', 'Так'], ['0', 'Ні']], p.news ? '1' : '0').replace(/data-act="set"/g, 'data-act="notifpref"')}</div>
+    <div class="f"><span>Нові PDF-матеріали до обʼєктів</span>${seg('np_mats', [['1', 'Так'], ['0', 'Ні']], p.mats ? '1' : '0').replace(/data-act="set"/g, 'data-act="notifpref"')}</div>
+    <p class="small mute">Сповіщення приходять, коли портал відкритий або згорнутий на телефоні: він перевіряє зміни при відкритті та кожні 5 хвилин. Ваші власні зміни не сповіщаються.</p>`);
+  const cnt = k => list.filter(x => k === 'all' || x.kind === k).length;
+  h += `<div class="row between wrap">${seg('nkind', [['all', 'Усі · ' + cnt('all')], ['task', 'Завдання · ' + cnt('task')], ['news', 'Новини · ' + cnt('news')], ['mat', 'Матеріали · ' + cnt('mat')]], filt)}</div>`;
+  h += card('Сповіщення', shown.length ? shown.map(x => {
+    const k = NOTIF_KIND[x.kind] || ['', ''];
+    return `<a class="item notif${x.read ? '' : ' unread'}" href="${esc(x.href || '#/home')}" data-act="notifopen" data-id="${esc(x.id)}">
+      <div class="row between"><b>${esc(x.title)}</b>${badge(k[0], k[1])}</div>
+      ${x.body ? `<p class="small nbody">${esc(x.body)}</p>` : ''}
+      <span class="small mute">${new Date(x.at).toLocaleString('uk-UA', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}${x.by ? ' · ' + esc(x.by) : ''}</span></a>`;
+  }).join('') : empty('Сповіщень немає'),
+    list.length ? `<span class="row gap"><button type="button" class="btn small ghost" data-act="notifread">✓ Усі прочитано</button><button type="button" class="btn small ghost" data-act="notifclear">Очистити</button></span>` : '');
+  return page('Сповіщення', h, '#/home');
+};
+ACTS.notifopen = d => { notifSave(notifList().map(x => x.id === d.id ? { ...x, read: true } : x)); const x = notifList().find(y => y.id === d.id); go(x && x.href || '#/home'); };
+ACTS.notifread = () => { notifSave(notifList().map(x => ({ ...x, read: true }))); render(); };
+ACTS.notifclear = async () => { if (!await ask('Видалити всі сповіщення з цього пристрою?', 'Очистити')) return; notifSave([]); render(); };
+ACTS.notifpref = d => {
+  const k = d.k.replace('np_', '');
+  setNotifPrefs({ [k]: k === 'tasks' ? d.v : d.v === '1' });
+  render();
+};
+ACTS.notifsys = async d => {
+  if (d.v === '0') { setNotifPrefs({ sys: false }); toast('Сповіщення на телефоні вимкнено'); return render(); }
+  if (!('Notification' in window)) return toast('Браузер не підтримує сповіщення');
+  let perm = Notification.permission;
+  if (perm === 'default') perm = await Notification.requestPermission();
+  if (perm !== 'granted') { toast('Дозвіл на сповіщення не надано'); return render(); }
+  setNotifPrefs({ sys: true }); toast('Сповіщення увімкнено'); render();
+};
+ACTS.notiftest = async () => {
+  try {
+    const reg = await navigator.serviceWorker.getRegistration();
+    const o = { body: 'Так виглядатимуть сповіщення про зміни завдань і новини.', icon: 'icons/icon-192.png', badge: 'icons/maskable-192.png', tag: 'vlnk-test', data: { href: '#/notifs' } };
+    reg ? await reg.showNotification('🔔 Портал ВЛНК', o) : new Notification('🔔 Портал ВЛНК', o);
+  } catch (e) { toast('Не вдалося показати сповіщення: ' + e.message); }
+};
+/** Приклади для демо-режиму, щоб було видно, як виглядає стрічка. */
+function notifDemo() {
+  const t = all('Завдання').find(x => x.status === 'в роботі') || all('Завдання')[0];
+  const o = t ? get('Обʼєкти', t.objectId) || {} : {};
+  const n = all('Новини').slice().sort((a, b) => String(b.date).localeCompare(String(a.date)))[0];
+  const now = Date.now(), L = [];
+  if (t) L.push({ id: uid(), kind: 'task', at: now - 20 * 60e3, read: false, by: 'Гончаренко О.В.', title: '✏️ Зміни в завданні: ' + (o.short || '') + ' · ' + brName(t.brigade), body: 'кінець: ' + uaDate(t.dateTo) + ' → ' + uaDate(addDays(t.dateTo || today(), 3)) + '\nплановий обсяг: RT 20 → RT 24', href: '#/object/' + t.objectId });
+  if (n) L.push({ id: uid(), kind: 'news', at: now - 3 * 3600e3, read: false, by: n.author || '', title: '📰 ' + n.title, body: String(n.text || '').slice(0, 220), href: '#/news' });
+  const t2 = all('Завдання').find(x => x.status === 'заплановано');
+  if (t2) { const o2 = get('Обʼєкти', t2.objectId) || {}; L.push({ id: uid(), kind: 'task', at: now - 26 * 3600e3, read: true, by: 'Гончаренко О.В.', title: '🆕 Нове завдання: ' + (o2.short || '') + ' · ' + brName(t2.brigade), body: uaDate(t2.dateFrom) + ' – ' + uaDate(t2.dateTo) + (t2.workType ? ' · ' + t2.workType : ''), href: '#/object/' + t2.objectId }); }
+  notifSave(L);
+}
+// натискання на системне сповіщення — відкрити потрібну сторінку
+if ('serviceWorker' in navigator) navigator.serviceWorker.addEventListener('message', e => { if (e.data && e.data.type === 'NAV' && e.data.href) { location.hash = e.data.href.replace(/^.*#/, '#'); } });
+
 // ═════════ НАЛАШТУВАННЯ ═════════
 ROUTES.settings = () => {
   let h = card('Профіль', kv([['Імʼя', esc(ME.name)], ['Email', esc(ME.email)], ['Роль', esc(roleName(ME.role))]]) +
@@ -565,6 +646,7 @@ ROUTES.settings = () => {
     ['У черзі на відправку', String(DB.pending) + (DB.upTasks.size ? ' + файлів: ' + DB.upTasks.size : '')],
     ['Помилка', DB.error ? `<span class="bad">${esc(DB.error)}</span>` : '']
   ]) + (MODE === 'live' ? `<div class="row gap"><button class="btn primary" data-act="sync">Синхронізувати зараз</button>${isLead() ? '<button class="btn ghost" data-act="fullsync">Повне оновлення</button>' : ''}</div>` : ''));
+  h += card('Сповіщення', `<p class="small">Повідомлення про зміни завдань по обʼєктах, нові новини та PDF-матеріали.</p><a class="btn ghost" href="#/notifs">🔔 Сповіщення${notifUnread() ? ' · ' + notifUnread() : ''}</a>`);
   if (installPrompt) h += card('Застосунок', `<p>Встановіть портал на телефон — він відкриватиметься як звичайний застосунок і працюватиме без інтернету.</p><button class="btn primary" data-act="install">Встановити на телефон</button>`);
   else h += card('Встановлення на телефон', `<p class="small">Android (Chrome): меню ⋮ → «Додати на головний екран».<br>iPhone (Safari): «Поділитися» → «На екран Додому».</p>`);
   if (isLead()) {
