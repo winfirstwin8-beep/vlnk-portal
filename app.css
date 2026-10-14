@@ -382,3 +382,5 @@ details.fold[open] > summary { margin-bottom: 8px; }
 .idkprot{width:100%;font-size:13px}.idkprot th,.idkprot td{padding:6px 4px;text-align:center;vertical-align:middle}.idkprot th.l,.idkprot td.l{text-align:left}.idkprot td:first-child{width:22px}.idkprot th{white-space:normal}.idkprot td:nth-child(n+3){width:11%;white-space:nowrap;font-size:12px;padding:6px 2px}.idkprot tr.fon td{background:var(--soft,rgba(127,127,127,.08))}
 
 .tivol{display:flex;align-items:flex-start;justify-content:space-between;gap:8px}.tivol>.small{flex:1}.tivol .matbtn{flex:none;white-space:nowrap}
+.top .bell{position:relative;flex:none}.top .bell svg{width:20px;height:20px;fill:none;stroke:#fff;stroke-width:2;stroke-linejoin:round;stroke-linecap:round}.top .bell .bdg:empty{display:none}.top .bell .bdg{position:absolute;top:-3px;right:-3px;min-width:18px;height:18px;padding:0 4px;border-radius:9px;background:#e5484d;color:#fff;font:700 11px/18px system-ui;text-align:center;box-shadow:0 0 0 2px var(--pri)}
+.item.notif.unread{border-left:3px solid var(--pri);background:var(--pri-bg,rgba(30,80,150,.06))}.item.notif .nbody{white-space:pre-line;margin:4px 0}

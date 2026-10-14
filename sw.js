@@ -1,5 +1,5 @@
 /* Service worker: застосунок відкривається і працює без інтернету */
-const CACHE = 'vlnk-v1.8.79';
+const CACHE = 'vlnk-v1.8.80';
 const SHELL = [
   './', 'index.html', 'app.css', 'config.js', 'manifest.webmanifest',
   'js/core.js', 'js/ui.js', 'js/views-work.js', 'js/views-data.js', 'js/views-vac.js', 'js/views-ppe.js', 'js/views-brief.js', 'js/docs.js', 'js/demo.js',
@@ -39,4 +39,15 @@ self.addEventListener('fetch', e => {
       return new Response('', { status: 504 });
     }));
   }
+});
+
+// натискання на сповіщення: відкрити портал на потрібній сторінці
+self.addEventListener('notificationclick', e => {
+  e.notification.close();
+  const href = (e.notification.data && e.notification.data.href) || '#/notifs';
+  e.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(cs => {
+    const c = cs.find(x => x.url.startsWith(self.registration.scope));
+    if (c) { c.postMessage({ type: 'NAV', href }); return c.focus(); }
+    return self.clients.openWindow(self.registration.scope + 'index.html' + href);
+  }));
 });
