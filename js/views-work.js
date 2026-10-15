@@ -430,7 +430,7 @@ ACTS.dpdist = d => {
   const n = work.length || days.length, list = work.length ? work : days;
   Object.entries(plan).forEach(([k, T]) => {
     days.forEach(dd => { cur['p_' + dd + '_' + k] = ''; });
-    if (MU(k) === 'ст.') { const base = Math.floor(T / n); let rest = Math.round(T - base * n); list.forEach(dd => { const v = base + (rest > 0 ? 1 : 0); if (rest > 0) rest--; cur['p_' + dd + '_' + k] = v || ''; }); }
+    if (MU(k) !== 'дм²') { const base = Math.floor(T / n); let rest = Math.round(T - base * n); list.forEach(dd => { const v = base + (rest > 0 ? 1 : 0); if (rest > 0) rest--; cur['p_' + dd + '_' + k] = v || ''; }); }
     else { const per = Math.round(T / n * 10) / 10; let acc = 0; list.forEach((dd, i) => { const v = i === n - 1 ? Math.round((T - acc) * 10) / 10 : per; acc += v; cur['p_' + dd + '_' + k] = v || ''; }); }
   });
   UI.draft['dayplan:' + d.id] = cur; UI.dirty = true; render();

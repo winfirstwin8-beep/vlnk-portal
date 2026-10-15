@@ -1836,9 +1836,9 @@ FORMS.comment = async (d, id) => { if (!d.text) return; await save('Комент
 ROUTES.norms = () => {
   if (isVisitor()) return denied();
   const list = normsList();
-  let h = `<p class="small mute">Норми на 1 стик для кожного діаметра. За ними портал рахує витрату плівки, реактивів і матеріалів PT у щоденних звітах, а також особливий характер робіт (люд-год RT). Для діаметра без точної норми береться найближчий.</p>`;
-  h += list.length ? table(['Ø', 'Плівка, дм²', 'Прояв., л', 'Фікс., л', 'PT розч.', 'PT пенетр.', 'PT прояв.', 'VT, л-год', 'RT, л-год'],
-    list.map(n => [isLead() ? `<a href="#/normform/${esc(n.id)}"><b>${esc(n.diameter)}</b></a>` : `<b>${esc(n.diameter)}</b>`, ...['film', 'dev', 'fix', 'ptSolvent', 'ptPenetrant', 'ptDeveloper', 'vtHours', 'rtHours'].map(k => fmtN3(num(n[k])))]), 'num first') :
+  let h = `<p class="small mute">Норми для кожного діаметра: RT і людино-години — на 1 стик, PT — на 1 дм² контрольованої поверхні. За ними портал рахує витрату плівки, реактивів і матеріалів PT у щоденних звітах, а також особливий характер робіт (люд-год RT). Для діаметра без точної норми береться найближчий.</p>`;
+  h += list.length ? table(['Ø', 'Плівка, дм²', 'Прояв., л', 'Фікс., л', 'PT розч., л/дм²', 'PT пенетр., л/дм²', 'PT прояв., л/дм²', 'VT, л-год', 'RT, л-год'],
+    list.map(n => [isLead() ? `<a href="#/normform/${esc(n.id)}"><b>${esc(n.diameter)}</b></a>` : `<b>${esc(n.diameter)}</b>`, ...['film', 'dev', 'fix', 'ptSolvent', 'ptPenetrant', 'ptDeveloper', 'vtHours', 'rtHours'].map(k => /^pt/.test(k) ? num(n[k]).toLocaleString('uk-UA', { maximumFractionDigits: 4 }) : fmtN3(num(n[k])))]), 'num first') :
     empty('Норми ще не внесено. Імпортуйте їх з аркуша «Норми_витрат» (функція importNorms) або додайте вручну.');
   if (isLead()) h += fab('#/normform/new');
   return page('Норми витрат матеріалів', h, '#/menu');
@@ -1849,7 +1849,7 @@ ROUTES.normform = (id = 'new') => {
   const d = src || {};
   const body = fNum('Діаметр, мм', 'diameter', d.diameter, { req: true }) +
     `<fieldset class="f"><legend>RT, на 1 стик</legend><div class="grid3">${fNum('Плівка, дм²', 'film', d.film)}${fNum('Проявник, л', 'dev', d.dev)}${fNum('Фіксаж, л', 'fix', d.fix)}</div></fieldset>
-     <fieldset class="f"><legend>PT, на 1 стик</legend><div class="grid3">${fNum('Розчинник, л', 'ptSolvent', d.ptSolvent)}${fNum('Пенетрант, л', 'ptPenetrant', d.ptPenetrant)}${fNum('Проявник, л', 'ptDeveloper', d.ptDeveloper)}</div></fieldset>
+     <fieldset class="f"><legend>PT, на 1 дм²</legend><div class="grid3">${fNum('Розчинник, л', 'ptSolvent', d.ptSolvent)}${fNum('Пенетрант, л', 'ptPenetrant', d.ptPenetrant)}${fNum('Проявник, л', 'ptDeveloper', d.ptDeveloper)}</div></fieldset>
      <fieldset class="f"><legend>Людино-години на 1 стик</legend><div class="grid2">${fNum('VT', 'vtHours', d.vtHours)}${fNum('RT (особливий характер)', 'rtHours', d.rtHours)}</div></fieldset>`;
   return page('Норма для діаметра', form('norm', id, body, src ? { del: { t: 'НормиМатеріалів', id, back: '#/norms' } } : {}), '#/norms');
 };
