@@ -57,7 +57,8 @@ function tasksByStatus(view, inB) {
   for (const n of BRIGADES) {
     const ts = tasks.filter(t => String(t.brigade) === String(n)); if (!ts.length) continue; any = true;
     const mm = view === 'work' ? ym(d) : (ts[0].month || ym(ts[0].dateFrom));
-    h += card(brigTitle(n, mm) + ` <span class="small mute">(${ts.length})</span>`, ts.map(taskItem).join(''));
+    const so = splitOrder(tripOrderNo(ts[0]));
+    h += card(brigTitle(n, mm) + ` <span class="small mute">(${ts.length})</span>`, ts.map(taskItem).join(''), `<span class="small">${so.no ? `📄 Наказ на вахту № <b>${esc(so.no)}</b>${so.date ? ' від ' + uaDate(so.date) : ''}` : '<span class="warn">наказ на вахту не вказано</span>'}</span>`);
   }
   return h + (any ? '' : empty(view === 'work' ? 'Зараз обʼєктів у роботі немає' : 'Запланованих обʼєктів немає'));
 }
@@ -180,7 +181,7 @@ ROUTES.taskform = (id = 'new', brig) => {
      ${fInp('Діаметри труб', 'diameters', arr(d.diameters).join(', '), { ph: '530, 720', hint: 'через кому' })}
      <fieldset class="f"><legend>Плановий обсяг за методами</legend><div class="grid4">${METHODS.map(m => { const k = MKEY[m]; const v = d['pl_' + k] !== undefined ? d['pl_' + k] : planOf(d)[k]; return fNum(`${m} <small>${MU(k)}</small>`, 'pl_' + k, v); }).join('')}</div>
      <small class="mute">Стики — RT, VT-W, UT-W, PT, UTT, HB; дм² — VT-S, UT-S. Працівник бачить «виконано/заплановано».</small></fieldset>
-     <div class="grid2">${fInp('№ заявки НК', 'requestNo', d.requestNo)}${fInp('№ наказу на відрядження', 'orderNo', d.orderNo, { hint: 'один наказ на всі виїзди бригади за місяць' })}</div>
+     <div class="grid2">${fInp('№ заявки НК', 'requestNo', d.requestNo)}${fInp('№ наказу на вахту (відрядження)', 'orderNo', d.orderNo, { hint: 'один наказ на виїзд бригади за місяць; можна «№ від дд.мм.рррр»' })}</div>
      ${fSel('Статус', 'status', TASK_STATUS, d.status)}
      ${fArea('Примітка', 'note', d.note)}`;
   return page(id === 'new' ? 'Нове завдання' : 'Завдання', taskObjCard(d.objectId, src && src.objectId === d.objectId ? src : null) + (src ? card('Наказ на відрядження', orderBlock(src)) : '') + form('task', id, body, src ? { del: { t: 'Завдання', id, back: '#/tasks' } } : {}), '#/tasks');
@@ -331,6 +332,34 @@ ROUTES.plan = () => {
   }).join(''));
   return page('Планування', h, '#/menu');
 };
+/** № наказу на вахту (виїзд бригади): один на всі завдання бригади за місяць, зберігається в полі orderNo завдань. */
+function shiftOrder(s) { return splitOrder(tripOrderNo(s.tasks[0])); }
+function fmtOrder(no, date) { return String(no || '').trim() + (no && date ? ' від ' + uaDate(date) : ''); }
+async function setTripOrder(t, no, date) {
+  const v = fmtOrder(no, date); let n = 0;
+  for (const x of tripTasks(t)) if (String(x.orderNo || '').trim() !== v) { await save('Завдання', { ...x, orderNo: v }); n++; }
+  return n;
+}
+function shiftOrderLine(s, lead) {
+  const key = s.brigade + '|' + s.tasks[0].id, so = shiftOrder(s);
+  if (lead && UI.shOrdEdit === key) {
+    const dr = UI.draft['shiftorder:' + key] || so;
+    return `<form class="form shord" data-form="shiftorder" data-id="${esc(key)}" novalidate><div class="grid2">${fInp('№ наказу на вахту', 'no', dr.no || '', { ph: '7500РХ-26-____', req: true })}${fInp('Дата наказу', 'date', dr.date || '', { type: 'date' })}</div>
+      <div class="row gap"><button type="submit" class="btn small primary">Зберегти</button><button type="button" class="btn small ghost" data-act="shordcancel">Скасувати</button></div></form>`;
+  }
+  const txt = so.no ? `📄 Наказ на вахту № <b>${esc(so.no)}</b>${so.date ? ' від <b>' + uaDate(so.date) + '</b>' : ''}` : '<span class="warn">⚠ № наказу на вахту не вказано</span>';
+  return `<div class="small shordline"><span>${txt}</span>${lead ? ` <button type="button" class="btn small ghost" data-act="shordedit" data-id="${esc(key)}">${so.no ? '✏️ Змінити' : '✏️ Вказати наказ'}</button>` : ''}</div>`;
+}
+ACTS.shordedit = d => { UI.shOrdEdit = d.id; render(); };
+ACTS.shordcancel = () => { UI.shOrdEdit = null; UI.dirty = false; render(); };
+ONCHANGE.shiftorder = (d, f) => { UI.draft['shiftorder:' + f.dataset.id] = d; };
+FORMS.shiftorder = async (d, key) => {
+  const t = get('Завдання', key.split('|')[1]); if (!t) return toast('Завдання не знайдено');
+  if (!String(d.no || '').trim()) return toast('Вкажіть № наказу');
+  const n = await setTripOrder(t, String(d.no).trim(), d.date || '');
+  delete UI.draft['shiftorder:' + key]; UI.shOrdEdit = null; UI.dirty = false;
+  savedMsg(n ? 'Наказ на вахту збережено' : 'Без змін'); render();
+};
 /** Заголовок вахти: період, кількість обʼєктів, стан СЗ і відомості, кнопка формування. */
 function shiftHead(s, lead) {
   const no = s.objects.length;
@@ -340,6 +369,7 @@ function shiftHead(s, lead) {
   else if (sd.exact) st = `<span class="ok">✓ СЗ і відомість сформовано ${esc(fmtDT(sd.doc.sentAt))}</span>${sd.doc.email ? ' · надіслано на ' + esc(sd.doc.email) : ''}${sd.doc.szUrl ? ` · <a href="${esc(sd.doc.szUrl)}" target="_blank" rel="noopener">СЗ ↗</a>` : ''}${sd.doc.vidUrl ? ` · <a href="${esc(sd.doc.vidUrl)}" target="_blank" rel="noopener">відомість ↗</a>` : ''}`;
   else st = `<span class="warn">⚠ сформовано на ${uaDate(sd.doc.dateFrom)} – ${uaDate(sd.doc.dateTo)}, період вахти змінився — сформуйте повторно</span>`;
   return `<div class="shifthead"><div><b>${uaDate(s.from)} – ${uaDate(s.to)}</b> · ${no} ${plural(no, 'обʼєкт', 'обʼєкти', 'обʼєктів')}</div>
+    ${shiftOrderLine(s, lead)}
     <div class="small">${st}</div>
     ${lead ? `<a class="btn small ${sd && sd.exact ? 'ghost' : 'primary'}" href="#/shiftdocs/${esc(s.brigade)}/${s.from}/${s.to}">${sd && sd.exact ? 'Сформувати повторно' : 'Сформувати СЗ і відомість'}</a>` : ''}</div>`;
 }
@@ -891,7 +921,7 @@ ROUTES.shiftdocs = (n, from, to) => {
     ['Період вахти', `${uaDate(from)} – ${uaDate(to)} · ${nights} ${plural(nights, 'доба', 'доби', 'діб')} проживання`],
     ['Обʼєкти', objs.map(o => `<a href="#/object/${esc(o.id)}">${esc(o.short)}</a>`).join(', ')],
     ['Автомобіль', esc(car || '—')],
-    ['Наказ', esc(tripOrderNo(s.tasks[0]) || '—')],
+    ['Наказ на вахту', (() => { const so = shiftOrder(s); return so.no ? `№ <b>${esc(so.no)}</b>${so.date ? ' від <b>' + uaDate(so.date) + '</b>' : ''}` : '<span class="warn">не вказано — впишіть нижче</span>'; })()],
     ['Працівники', workers.map(id => esc(shortName(personName(id))) + (id === driver ? ' 🚐' : '') + ((get('Персонал', id) || {}).tabNo ? ` <span class="small mute">таб. ${esc(get('Персонал', id).tabNo)}</span>` : '')).join('<br>') || '<span class="bad">склад бригади не призначено</span>'],
     ['У відпустці весь період', off.map(id => esc(shortName(personName(id)))).join(', ')]
   ]) + (sd ? `<p class="small mute">Попереднє формування: ${esc(fmtDT(sd.doc.sentAt))}, ${uaDate(sd.doc.dateFrom)} – ${uaDate(sd.doc.dateTo)}, ${esc(sd.doc.email || '')}${resendBtn('ДокументиВахт', sd.doc)}</p>` : ''));
@@ -900,8 +930,10 @@ ROUTES.shiftdocs = (n, from, to) => {
   if (noDist.length) warn.push(`Не вказано відстані / час у дорозі: ${noDist.map(o => `<a href="#/objform/${esc(o.id)}">${esc(o.short)}</a>`).join(', ')} — у СЗ буде «____», впишіть від руки або заповніть у картці обʼєкта.`);
   if (!objs.some(o => o.contact)) warn.push('У обʼєктів не вказано відповідального від замовника — рядок про відповідального за ОП лишиться порожнім.');
   if (warn.length) h += `<div class="note warn">${warn.join('<br>')}</div>`;
-  const d = UI.draft['shiftdocs'] || { price: setting('lodgingPrice', ''), email: setting('docsEmail', ''), remember: true };
+  const so0 = shiftOrder(s);
+  const d = UI.draft['shiftdocs'] || { price: setting('lodgingPrice', ''), email: setting('docsEmail', ''), remember: true, orderNo: so0.no, orderDate: so0.date };
   h += card('Підтвердження формування', form('shiftdocs', `${n}|${from}|${to}`,
+    `<div class="grid2">${fInp('№ наказу на вахту', 'orderNo', d.orderNo, { req: true, ph: '7500РХ-26-____', hint: 'один наказ на виїзд бригади за місяць' })}${fInp('Дата наказу', 'orderDate', d.orderDate, { type: 'date' })}</div>` +
     fNum('Вартість проживання, грн за добу (на 1 особу)', 'price', d.price, { req: true, ph: 'напр. 1000' }) +
     `<p class="small mute" id="sdsum"></p>` +
     emailField('Email, на який надіслати документи', d.email) +
@@ -921,7 +953,9 @@ document.addEventListener('input', e => { if (e.target.closest && e.target.close
 FORMS.shiftdocs = async (d, id) => {
   const [n, from, to] = id.split('|');
   const x = shiftData(n, from, to); if (!x) return toast('Вахту не знайдено');
+  if (!String(d.orderNo || '').trim()) return toast('Вкажіть № наказу на вахту');
   if (!(num(d.price) > 0)) return toast('Вкажіть вартість проживання');
+  await setTripOrder(x.s.tasks[0], String(d.orderNo).trim(), d.orderDate || '');
   const email = normEmails(d.email);
   if (!email) return toast('Вкажіть коректний email (кілька адрес — через кому)');
   if (!x.workers.length) return toast('У бригади немає працівників на цей період');
@@ -929,7 +963,7 @@ FORMS.shiftdocs = async (d, id) => {
   if (d.remember) for (const [k, v] of [ ['lodgingPrice', String(num(d.price))]]) { const cur = all('Налаштування').find(r => r.key === k); if (!cur || String(cur.value) !== v) await save('Налаштування', cur ? { ...cur, value: v } : { key: k, value: v }); }
   const objs = x.s.objects.map(oid => get('Обʼєкти', oid)).filter(Boolean);
   const shift = {
-    brigade: n, from, to, price: num(d.price), email, car: x.car, orderNo: tripOrderNo(x.s.tasks[0]), base: setting('baseName', 'с. Юрівка'),
+    brigade: n, from, to, price: num(d.price), email, car: x.car, orderNo: String(d.orderNo).trim(), orderDate: d.orderDate || '', base: setting('baseName', 'с. Юрівка'),
     taskIds: x.s.tasks.map(t => t.id),
     objects: objs.map(o => ({ short: o.short || '', name: o.name || o.short || '', distBase: o.distBase || '', distObj: o.distObj || '', travelTime: o.travelTime || '', contact: o.contact || '', contactPos: o.contactPos || (objResp(o) || {}).posada || '' })),
     workers: x.workers.map(wid => { const p = get('Персонал', wid) || {}; return { id: wid, pib: p.pib || '', posada: p.posada || '', tabNo: p.tabNo || '', driver: wid === x.driver }; })

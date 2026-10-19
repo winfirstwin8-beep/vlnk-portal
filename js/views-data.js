@@ -528,8 +528,8 @@ function accessInfo() {
   if (MODE === 'demo') {
     if (!DB.access) {
       const lg = {}, sn = {}, now = Date.now();
-      allPeople().forEach((p, i) => { if (p.email && i % 3 !== 2) { const t = now - (i * 37 % 200) * 3600e3; lg[p.id] = [t, 1 + i % 9, t - 20 * 864e5, 'pin']; sn[p.id] = now - (i * 13 % 90) * 60e3 * (i % 4 ? 1 : 30); } });
-      DB.access = { logins: lg, seen: sn, pins: allPeople().filter((p, i) => p.email && i % 5).map(p => p.id) };
+      allPeople().forEach((p, i) => { if (p.email && i % 3 !== 2) { const t = now - (i * 37 % 200) * 3600e3; lg[p.id] = [t, 1 + i % 9, t - 20 * 864e5, 'email-code']; sn[p.id] = now - (i * 13 % 90) * 60e3 * (i % 4 ? 1 : 30); } });
+      DB.access = { logins: lg, seen: sn, pins: [] };
     }
     return DB.access;
   }
@@ -563,12 +563,15 @@ ROUTES.access = () => {
   const inG = p => grp === 'all' || (grp === 'vis' ? p.role === 'відвідувач' : p.role !== 'відвідувач');
   const base = ppl.filter(inG);
   const cnt = k => base.filter(p => k === 'all' || (k === 'out' ? st[p.id].k !== 'in' : st[p.id].k === k)).length;
-  let h = `<p class="small mute">Запросіть працівника або відповідального від замовника: вкажіть email і код (PIN) — на пошту прийде лист із посиланням на портал, email і кодом. Email і код можна змінити будь-коли; після зміни email попередні входи з тієї адреси завершуються. Статус входу відстежується з 07.10.2026.</p>`;
+  let h = `<p class="small mute">Вхід у портал — за одноразовим кодом, який людина щоразу отримує на свій email (PIN-коди скасовано). Запросіть працівника або відповідального від замовника: вкажіть email — на нього прийде лист із посиланням на портал. Відповідальні від замовника входять лише з корпоративної адреси @tsoua.com. Увійти можна і з корпоративної пошти, вказаної в картці працівника. Після зміни email попередні входи з тієї адреси завершуються.</p>`;
+  const corp = setting('corpOnly', '') === '1';
+  h += card('Корпоративні адреси', `<p class="small">${corp ? '<b class="ok">Увімкнено:</b> входити можна лише з адрес @tsoua.com (email або корпоративна пошта в картці).' : '<b>Вимкнено:</b> працівники можуть входити і з особистих адрес; відповідальні від замовника — лише з @tsoua.com.'}</p>
+    <button type="button" class="btn small ${corp ? 'ghost' : 'primary'}" data-act="corponly" data-v="${corp ? '0' : '1'}">${corp ? 'Дозволити особисті адреси працівникам' : '🔒 Дозволити вхід лише з @tsoua.com'}</button>`);
   h += seg('accg', [['all', 'Усі · ' + ppl.length], ['staff', 'Працівники · ' + ppl.filter(p => p.role !== 'відвідувач').length], ['vis', 'Від замовника · ' + ppl.filter(p => p.role === 'відвідувач').length]], grp).replace('class="seg"', 'class="seg wrap"');
   h += `<div class="kpis staffkpi">${[['all', 'Усього'], ['in', '🟢 Входили'], ['out', 'Не входили'], ['inv', '✉ Запрошені'], ['noemail', '⚠ Без email']].map(([k, l]) => `<button type="button" class="kpi${f === k ? ' on' : ''}" data-act="set" data-k="accf" data-v="${k}"><b>${cnt(k)}</b><span>${l}</span></button>`).join('')}</div>`;
   const list = base.filter(p => f === 'all' || (f === 'out' ? st[p.id].k !== 'in' : st[p.id].k === f))
     .sort((a, b) => (a.role === 'відвідувач') - (b.role === 'відвідувач') || String(a.pib).localeCompare(String(b.pib), 'uk'));
-  const item = p => { const s = st[p.id]; return `<div class="item"><div class="row between"><a href="#/person/${esc(p.id)}"><b>${esc(p.pib)}</b></a><a class="btn small ${s.k === 'in' ? 'ghost' : 'primary'}" href="#/invite/${esc(p.id)}">${s.k === 'none' || s.k === 'noemail' || s.k === 'pin' ? '✉ Запросити' : s.k === 'inv' ? '✉ Ще раз' : '🔑 Змінити'}</a></div>
+  const item = p => { const s = st[p.id]; return `<div class="item"><div class="row between"><a href="#/person/${esc(p.id)}"><b>${esc(p.pib)}</b></a><a class="btn small ${s.k === 'in' ? 'ghost' : 'primary'}" href="#/invite/${esc(p.id)}">${s.k === 'none' || s.k === 'noemail' || s.k === 'pin' ? '✉ Запросити' : s.k === 'inv' ? '✉ Ще раз' : '✉ Змінити email'}</a></div>
     <span class="small mute">${esc(p.posada || roleName(p.role) || '')}${p.email ? ' · ' + esc(p.email) : ''}</span>
     <span class="small">${loginBadge(p)}${s.L ? ` <span class="mute">· входів: ${num(s.L[1])}, останній ${esc(fmtDT(s.L[0]))}</span>` : ''}</span></div>`; };
   const staffL = list.filter(p => p.role !== 'відвідувач'), visL = list.filter(p => p.role === 'відвідувач');
@@ -581,56 +584,58 @@ ROUTES.invite = id => {
   if (!isLead()) return denied();
   const p = get('Персонал', id); if (!p) return notFound();
   const s = loginState(p), vis = p.role === 'відвідувач';
-  const d = UI.draft['invite:' + id] || { email: p.email || '', pin: '', send: true };
+  const d = UI.draft['invite:' + id] || { email: p.email || (CORP_RE.test(p.emailCorp || '') ? p.emailCorp : ''), send: true };
   let h = card(esc(p.pib), kv([
     ['Хто', esc(vis ? 'Відповідальний від замовника' : (p.posada || 'Працівник'))], ['Роль у порталі', esc(roleName(p.role))],
     ['Email для входу', p.email ? esc(p.email) : '<span class="bad">не вказано</span>'],
     ['Статус входу', loginBadge(p)],
     ['Запрошено', num(p.invitedAt) ? esc(fmtDT(p.invitedAt)) + (p.invitedBy ? ' · ' + esc(p.invitedBy) : '') : '—'],
-    ['Останній вхід', s.L ? esc(fmtDT(s.L[0])) + ` <span class="small mute">(${s.L[3] === 'google' ? 'через Google' : 'email + код'})</span>` : '—'],
+    ['Останній вхід', s.L ? esc(fmtDT(s.L[0])) + ` <span class="small mute">(${s.L[3] === 'google' ? 'через Google' : s.L[3] === 'email-code' ? 'код з пошти' : 'email + PIN'})</span>` : '—'],
     ['Усього входів', s.L ? String(num(s.L[1])) + (s.L[2] ? ` <span class="small mute">з ${esc(fmtDT(s.L[2]).slice(0, 10))}</span>` : '') : '—'],
     ['Остання активність', s.S ? esc(fmtDT(s.S)) + ' · ' + esc(agoText(s.S)) : '—']
   ]));
-  h += card(p.email ? 'Змінити email і код / запросити ще раз' : 'Запросити до порталу', form('invite', id,
-    fInp('Email для входу', 'email', d.email, { type: 'email', req: true, ph: 'name@example.com', hint: 'на цю адресу прийде запрошення; нею ж людина входить у портал' }) +
-    `<label class="f"><span>Код для входу (PIN)</span><div class="row gap pinrow"><input name="pin" type="text" inputmode="numeric" autocomplete="off" maxlength="8" value="${esc(d.pin || '')}" placeholder="${(accessInfo().pins || []).includes(id) ? 'залишити поточний' : 'буде згенеровано'}"><button type="button" class="btn small ghost" data-act="genpin">🎲 Новий</button>${MODE === 'live' && (accessInfo().pins || []).includes(id) ? `<button type="button" class="btn small ghost" data-act="showpin" data-id="${esc(id)}">👁 Поточний</button>` : ''}</div><small>4–8 цифр. Порожньо — ${(accessInfo().pins || []).includes(id) ? 'код не змінюється' : 'буде згенеровано 6-значний код'}.</small></label>` +
-    fChk('Надіслати запрошення на email (посилання на портал, email і код)', 'send', d.send) +
-    `<p class="small mute">Після зміни email людина має увійти заново з новою адресою.</p>`,
+  h += card(p.email ? 'Змінити email / запросити ще раз' : 'Запросити до порталу', form('invite', id,
+    fInp('Email для входу', 'email', d.email, { type: 'email', req: true, ph: 'name@tsoua.com', hint: vis ? 'лише корпоративна адреса @tsoua.com' : 'на цю адресу прийде запрошення і коди для входу' }) +
+    fChk('Надіслати запрошення на email (посилання на портал та інструкція)', 'send', d.send) +
+    `<p class="small mute">Вхід — за одноразовим кодом, що приходить на цей email. Після зміни email людина має увійти заново з новою адресою.</p>`,
     { submit: '✉ Зберегти й запросити' }));
   return page('Запрошення', h, '#/access');
 };
-ACTS.genpin = (d, el) => { const f = el.closest('form'); const i = f && f.querySelector('input[name=pin]'); if (i) { i.value = String(100000 + Math.floor(Math.random() * 900000)); UI.dirty = true; } };
-ACTS.showpin = async d => {
-  if (!navigator.onLine) return toast('Потрібен інтернет');
-  const r = await api({ action: 'getpin', personId: d.id }).catch(e => ({ ok: false, error: e.message }));
-  if (!r.ok) return toast(r.error === 'Невідома дія' ? 'Оновіть серверну частину порталу' : r.error);
-  await ask(`Поточний код для входу: ${r.pin || '— не задано —'}`, 'Гаразд', 'Закрити');
+ACTS.corponly = async d => {
+  const on = d.v === '1';
+  if (on) {
+    const me = get('Персонал', ME.personId) || {};
+    if (!CORP_RE.test(ME.email || '') && !CORP_RE.test(me.emailCorp || '')) return toast('Спочатку вкажіть свою корпоративну адресу @tsoua.com у картці (поле «Корпоративна пошта») — інакше ви не зможете увійти');
+    const no = allPeople().filter(p => p.role !== 'відвідувач' && p.email && !CORP_RE.test(p.email) && !CORP_RE.test(p.emailCorp || ''));
+    if (!await ask(`Дозволити вхід лише з адрес @tsoua.com?${no.length ? `\n\nБез корпоративної адреси (не зможуть увійти): ${no.map(p => shortName(p.pib)).join(', ')}` : ''}\n\nПоточні сесії з особистих адрес буде завершено.`, 'Увімкнути')) return;
+  }
+  const cur = all('Налаштування').find(r => r.key === 'corpOnly');
+  await save('Налаштування', cur ? { ...cur, value: on ? '1' : '0' } : { key: 'corpOnly', value: on ? '1' : '0' });
+  savedMsg(on ? 'Вхід лише з корпоративних адрес' : 'Особисті адреси працівникам дозволено'); render();
 };
 FORMS.invite = async (d, id) => {
   const p = get('Персонал', id); if (!p) return toast('Людину не знайдено');
   const email = String(d.email || '').trim().toLowerCase();
   if (!/^[^\s@,;]+@[^\s@,;]+\.[^\s@,;]+$/.test(email)) return toast('Вкажіть коректний email');
-  if (all('Персонал').some(x => x.id !== id && String(x.email || '').trim().toLowerCase() === email)) return toast('Цей email уже вказано в іншої людини');
-  const pin = String(d.pin || '').replace(/\s+/g, '');
-  if (pin && !/^\d{4,8}$/.test(pin)) return toast('Код — від 4 до 8 цифр');
+  if (all('Персонал').some(x => x.id !== id && [x.email, x.emailCorp].some(e => String(e || '').trim().toLowerCase() === email))) return toast('Цей email уже вказано в іншої людини');
+  if (p.role === 'відвідувач' && !CORP_RE.test(email)) return toast('Відповідальні від замовника входять лише з корпоративної адреси @tsoua.com');
+  if (setting('corpOnly', '') === '1' && !CORP_RE.test(email)) return toast('Увімкнено вхід лише з адрес @tsoua.com');
   const send = !!d.send;
   if (p.email && String(p.email).toLowerCase() !== email && !await ask(`Змінити email для входу ${p.pib}:\n${p.email} → ${email}?\n\nВходи зі старої адреси буде завершено.`, 'Змінити')) return;
   if (MODE === 'demo') {
-    const code = pin || String(100000 + Math.floor(Math.random() * 900000));
     await save('Персонал', { ...p, email, ...(send ? { invitedAt: Date.now(), invitedBy: ME.name } : {}) });
-    const a = accessInfo(); if (!(a.pins || []).includes(id)) a.pins = [...(a.pins || []), id];
     delete UI.draft['invite:' + id]; UI.dirty = false;
-    await ask(`ДЕМО: збережено.\n\nEmail: ${email}\nКод: ${code}${send ? `\n\nУ робочій версії на ${email} прийде лист «Запрошення до порталу ВЛНК» з посиланням на портал, email і кодом.` : ''}`, 'Зрозуміло', 'Закрити');
+    await ask(`ДЕМО: збережено.\n\nEmail: ${email}${send ? `\n\nУ робочій версії на ${email} прийде лист «Запрошення до порталу ВЛНК» з посиланням на портал та інструкцією: вхід — за кодом, що приходить на пошту.` : ''}`, 'Зрозуміло', 'Закрити');
     return go('#/access');
   }
   if (!navigator.onLine) return toast('Потрібен інтернет');
   toast(send ? 'Надсилаю запрошення…' : 'Зберігаю…');
-  const r = await api({ action: 'invite', personId: id, email, pin, send }, 60000).catch(e => ({ ok: false, error: e.message }));
+  const r = await api({ action: 'invite', personId: id, email, send }, 60000).catch(e => ({ ok: false, error: e.message }));
   if (!r.ok) return toast('Не вдалося: ' + (r.error === 'Невідома дія' ? 'оновіть серверну частину порталу' : r.error));
   await applyLocal('Персонал', r.row);
   if (r.access) { DB.access = r.access; LS.set('access', JSON.stringify(r.access)); }
   delete UI.draft['invite:' + id]; UI.dirty = false;
-  await ask(`${r.mailed ? 'Запрошення надіслано на ' + email : 'Збережено'}.\n\nEmail для входу: ${email}\nКод: ${r.pin}`, 'Гаразд', 'Закрити');
+  await ask(`${r.mailed ? 'Запрошення надіслано на ' + email : 'Збережено'}.\n\nEmail для входу: ${email}\nВхід — за кодом, що приходить на цю пошту.`, 'Гаразд', 'Закрити');
   go('#/access');
 };
 
@@ -827,9 +832,9 @@ ROUTES.personform = (id = 'new', kind) => {
   const d = UI.draft['person:' + id] || src || { role: kind === 'visitor' ? 'відвідувач' : 'працівник', schedule: '8' };
   const vis0 = d.role === 'відвідувач';
   const body = fInp('ПІБ', 'pib', d.pib, { req: true, ph: 'Прізвище Імʼя По батькові' }) + (vis0 ? `<div class="grid2">${fInp('Посада', 'posada', d.posada)}${fInp('Табельний номер', 'tabNo', d.tabNo, { mode: 'numeric' })}</div>` : `<div class="grid2">${fInp('Посада', 'posada', d.posada)}${fInp('Табельний номер', 'tabNo', d.tabNo, { mode: 'numeric' })}</div>`) +
-    `<div class="grid2">${fInp('Email (для входу)', 'email', d.email, { type: 'email', hint: 'без email увійти в портал не можна' })}${fInp('Телефон', 'phone', d.phone, { type: 'tel' })}</div>
-     ${vis0 ? '' : fInp('Корпоративна пошта', 'emailCorp', d.emailCorp, { type: 'email', ph: 'name@tsoua.com' })}
-     <div class="grid2">${fSel('Роль у порталі', 'role', ROLE_OPTS, d.role, { re: true })}${fInp('PIN для входу', 'pin', '', { mode: 'numeric', ph: src ? 'не змінювати' : '4–6 цифр' })}</div>` +
+    `<div class="grid2">${fInp('Email (для входу)', 'email', d.email, { type: 'email', ph: vis0 ? 'name@tsoua.com' : '', hint: vis0 ? 'лише корпоративна адреса @tsoua.com' : 'на нього приходить код для входу' })}${fInp('Телефон', 'phone', d.phone, { type: 'tel' })}</div>
+     ${vis0 ? '' : fInp('Корпоративна пошта', 'emailCorp', d.emailCorp, { type: 'email', ph: 'name@tsoua.com', hint: 'з неї теж можна входити в портал' })}
+     ${fSel('Роль у порталі', 'role', ROLE_OPTS, d.role, { re: true })}` +
     // для відповідальних від замовника — лише ПІБ, посада, контакти, роль і примітка
     (vis0 ? fArea('Примітка', 'note', d.note, { rows: 2 }) : `
      ${fSel('Графік роботи', 'schedule', [['8', '8 год (08:00–17:00)'], ['11', '11 год (07:00–19:00)']], d.schedule)}
@@ -849,7 +854,9 @@ FORMS.person = async (d, id) => {
   // email потрібен лише для входу в портал; без нього людина є в довідниках, але увійти не може
   if (d.email && all('Персонал').some(p => p.id !== id && String(p.email || '').trim().toLowerCase() === d.email)) return toast('Такий email вже є');
   if (!d.email && d.role !== 'відвідувач' && !await ask('Без email працівник не зможе увійти в портал. Зберегти без email?', 'Зберегти')) return;
-  if (!d.pin) delete d.pin;
+  delete d.pin;
+  if (d.role === 'відвідувач' && d.email && !CORP_RE.test(d.email)) return toast('Відповідальні від замовника входять лише з корпоративної адреси @tsoua.com');
+  if (d.emailCorp && !CORP_RE.test(String(d.emailCorp).trim())) return toast('Корпоративна пошта — адреса @tsoua.com');
   const src = id !== 'new' ? get('Персонал', id) : {};
   const row = await save('Персонал', { ...src, ...d, id: id !== 'new' ? id : undefined });
   delete UI.draft['person:' + id];

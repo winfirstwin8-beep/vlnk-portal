@@ -317,49 +317,60 @@ ACTS.install = async () => { if (!installPrompt) return; installPrompt.prompt();
 function showLogin(reauth) {
   $('#app').hidden = true;
   const L = $('#login'); L.hidden = false;
-  const api = LS.get('api') || CFG.api || '';
+  const apiUrl = LS.get('api') || CFG.api || '';
+  const st = LOGIN_ST;
   L.innerHTML = `<div class="login">
     <img class="login-logo" src="icons/logo.png" alt="NDT ВЛНК">
     <h1>Портал ВЛНК</h1>
     <p class="mute">Контроль завдань лабораторії неруйнівного контролю</p>
     ${reauth ? '<p class="warn">Сесія завершилась. Увійдіть знову — незбережені дані залишаться в черзі.</p>' : ''}
-    <form id="lf" class="form">
-      ${CFG.api ? '' : fInp('Адреса API (вебзастосунок Apps Script)', 'api', api, { ph: 'https://script.google.com/macros/s/…/exec' })}
-      ${fInp('Email', 'email', LS.get('email') || '', { type: 'email', mode: 'email' })}
-      ${fInp('PIN-код', 'pin', '', { type: 'password', mode: 'numeric' })}
-      <button class="btn primary wide" type="submit">Увійти</button>
-      <div id="gbtn" class="gbtn"></div>
+    <form id="lf" class="form" novalidate>
+      ${CFG.api ? '' : fInp('Адреса API (вебзастосунок Apps Script)', 'api', apiUrl, { ph: 'https://script.google.com/macros/s/…/exec' })}
+      ${fInp('Email', 'email', st.email || LS.get('email') || '', { type: 'email', mode: 'email', ph: 'name@tsoua.com' })}
+      ${st.sent ? `<p class="small ok">${esc(st.msg || 'Код надіслано на пошту.')}</p>
+        <label class="f"><span>Код з листа</span><input name="code" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="\\d{6}" placeholder="6 цифр" autofocus></label>
+        <button class="btn primary wide" type="submit">Увійти</button>
+        <button class="btn ghost wide" type="button" id="resend">Надіслати код ще раз</button>`
+      : `<button class="btn primary wide" type="submit">Отримати код на пошту</button>`}
+      <p class="small mute">Вхід — за одноразовим кодом, який приходить на вашу пошту. Код нікому не повідомляйте.</p>
     </form>
     ${reauth ? '' : '<button class="btn ghost wide" id="demo">Переглянути демо без підключення</button>'}
     <p class="mute small">Версія ${VER} · працює без інтернету після першого входу</p>
   </div>`;
+  const ask4code = async email => {
+    if (!navigator.onLine) return toast('Для входу потрібен інтернет');
+    toast('Надсилаю код…');
+    try {
+      const r = await api({ action: 'requestcode', email });
+      if (!r.ok) return toast(r.error === 'Невідома дія' ? 'Серверна частина порталу ще не оновлена — зверніться до керівника' : (r.error || 'Помилка'));
+      Object.assign(LOGIN_ST, { email, sent: true, msg: r.msg }); showLogin(reauth);
+    } catch (e) { toast('Не вдалося зʼєднатися з сервером: ' + e.message); }
+  };
   $('#lf').onsubmit = async e => {
     e.preventDefault();
     const d = formData(e.target);
     if (d.api !== undefined) LS.set('api', d.api);
     CFG.api = LS.get('api') || CFG.api;
     if (!CFG.api) return toast('Вкажіть адресу API');
-    LS.set('email', d.email);
-    await doLogin({ email: d.email, pin: d.pin });
+    const email = String(d.email || '').trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return toast('Вкажіть коректний email');
+    LS.set('email', email);
+    if (!LOGIN_ST.sent || LOGIN_ST.email !== email) return ask4code(email);
+    const code = String(d.code || '').replace(/\D/g, '');
+    if (code.length !== 6) return toast('Введіть 6-значний код з листа');
+    await doLogin({ email, code });
   };
+  const rs = $('#resend'); if (rs) rs.onclick = () => ask4code(LOGIN_ST.email);
   const dm = $('#demo'); if (dm) dm.onclick = startDemo;
-  if (CFG.googleClientId) loadGoogle();
 }
-function loadGoogle() {
-  const s = document.createElement('script');
-  s.src = 'https://accounts.google.com/gsi/client'; s.async = true;
-  s.onload = () => {
-    google.accounts.id.initialize({ client_id: CFG.googleClientId, callback: r => doLogin({ idToken: r.credential }) });
-    google.accounts.id.renderButton($('#gbtn'), { theme: 'outline', size: 'large', text: 'signin_with', locale: 'uk', width: 280 });
-  };
-  document.head.appendChild(s);
-}
+const LOGIN_ST = { email: '', sent: false, msg: '' };
 async function doLogin(body) {
   if (!navigator.onLine) return toast('Для першого входу потрібен інтернет');
   toast('Вхід…');
   try {
     const res = await api({ action: 'login', ...body });
     if (!res.ok) return toast(res.error || 'Помилка входу');
+    Object.assign(LOGIN_ST, { sent: false, msg: '' });
     const prev = LS.json('user');
     if (prev && prev.email !== res.user.email && MODE === 'live') { await IDB.clear('rows'); await IDB.putMany('meta', [['since', 0]]); }
     MODE = 'live'; ME = res.user;
