@@ -97,7 +97,7 @@ function protoSection(oid, taskId) {
       <form class="form" data-form="proto" data-id="${esc(oid)}" data-task="${esc(taskId || '')}" novalidate>
         <div class="grid2">${fSel('Метод контролю', 'method', ms, UI.pmeth && UI.pmeth !== 'all' ? UI.pmeth : ms[0], { req: true })}${fInp('№ протоколу', 'number', '', { req: true })}</div>
         <div class="grid2">${fInp('Дата', 'date', today(), { type: 'date', req: true })}${fSel('Бригада', 'brigade', BRIGADES.map(n => [n, brName(n)]), t ? t.brigade : ((myBrigade(today()) || {}).num || ''), { none: '—' })}</div>
-        <label class="f"><span>Файл протоколу *</span><input type="file" name="file" accept="application/pdf,image/*,.doc,.docx,.xls,.xlsx"><small>PDF, фото, Word або Excel до 15 МБ; фото стискається автоматично</small></label>
+        <label class="f"><span>Файл протоколу *</span><input type="file" name="file" accept="application/pdf,image/*,.doc,.docx,.xls,.xlsx"${SCAN.pages.length ? ' disabled' : ''}><small>${SCAN.pages.length ? '<b>Вибрано скан камерою — файл не потрібен.</b> ' : 'Або відскануйте паперовий протокол камерою телефону — нижче. '}PDF, фото, Word або Excel до 15 МБ; фото стискається автоматично</small></label>
         ${fInp('Примітка', 'note', '', { ph: 'напр. стики № 12–24, Ø 530' })}
         <div class="form-actions"><button type="submit" class="btn primary">Зберегти протокол</button></div></form></details>`;
   }
@@ -106,9 +106,10 @@ function protoSection(oid, taskId) {
 FORMS.proto = async (d, oid, f) => {
   if (d.objectId) { oid = d.objectId; delete d.objectId; }
   if (!oid) return toast('Оберіть обʼєкт');
-  const file = f.querySelector('input[name=file]').files[0];
+  let file = f.querySelector('input[name=file]').files[0];
   if (!need(d, [['method', 'метод'], ['number', '№ протоколу'], ['date', 'дата']])) return;
-  if (!file) return toast('Оберіть файл протоколу');
+  if (!file && SCAN.pages.length) { toast('Формую PDF…'); file = await scanPdfFile(`Протокол ${d.number || ''} ${d.method || ''}`.trim()); }
+  if (!file) return toast('Оберіть файл протоколу або відскануйте його камерою');
   const dup = protoRows().find(p => p.objectId === oid && p.method === d.method && String(p.number).trim() === String(d.number).trim());
   if (dup && !await ask(`Протокол ${d.method} № ${d.number} на цьому обʼєкті вже є. Додати ще один?`)) return;
   delete d.file;
@@ -120,8 +121,130 @@ FORMS.proto = async (d, oid, f) => {
     toast(r === 'saved' ? 'Протокол збережено' : navigator.onLine ? 'Протокол відправляється…' : 'Протокол збережено на телефоні — відправиться, коли зʼявиться інтернет');
   } catch (e) { toast('Файл не додано: ' + e.message); }
   delete UI.draft['proto:' + (f.dataset.id || 'new')];
+  scanReset();
   UI.dirty = false; UI.protoOpen = false; UI.regObj = oid; UI.regMeth = ''; render();
 };
+// ───────── скан протоколу камерою телефону → PDF (без сторонніх бібліотек) ─────────
+const SCAN = { pages: [], mode: 'doc', busy: false };
+function scanBox() {
+  const n = SCAN.pages.length;
+  return `<div class="scanbox" id="scanbox">
+    <div class="row between"><b class="small">📷 Скан камерою → PDF</b>${n ? `<span class="small mute">${n} ${plural(n, 'сторінка', 'сторінки', 'сторінок')}</span>` : ''}</div>
+    ${n ? `<div class="scanpages">${SCAN.pages.map((pg, i) => `<div class="scanpg"><img src="${pg.thumb}" alt="сторінка ${i + 1}" data-act="scanview" data-i="${i}"><span class="scanno">${i + 1}</span>
+      <div class="scanops"><button type="button" class="btn small ghost" data-act="scanrot" data-i="${i}" title="Повернути на 90°">↻</button>${i ? `<button type="button" class="btn small ghost" data-act="scanup" data-i="${i}" title="Перемістити вліво">←</button>` : ''}<button type="button" class="btn small ghost" data-act="scandel" data-i="${i}" title="Видалити сторінку">✕</button></div></div>`).join('')}</div>` : '<p class="small mute">Покладіть протокол на рівну темну поверхню, сфотографуйте кожну сторінку згори при доброму освітленні. Сторінки обʼєднаються в один PDF.</p>'}
+    <div class="row gap wrap">
+      <label class="btn small primary">📷 ${n ? 'Додати сторінку' : 'Сканувати камерою'}<input type="file" accept="image/*" capture="environment" data-scan hidden></label>
+      <label class="btn small ghost">🖼 З галереї<input type="file" accept="image/*" multiple data-scan hidden></label>
+      ${n ? `<button type="button" class="btn small ghost" data-act="scanpdf">👁 Переглянути PDF</button><button type="button" class="btn small ghost" data-act="scanclear">Очистити</button>` : ''}
+    </div>
+    <div class="seg scanmode">${[['doc', 'Документ (ч/б, чіткий)'], ['color', 'Кольоровий']].map(([v, l]) => `<button type="button" data-act="scanmode" data-v="${v}" class="${SCAN.mode === v ? 'on' : ''}">${l}</button>`).join('')}</div>
+    ${SCAN.busy ? '<p class="small">⏳ Обробка фото…</p>' : ''}
+  </div>`;
+}
+function scanRefresh() { const b = $('#scanbox'); if (b) { b.outerHTML = scanBox(); } const fi = $('form[data-form=proto] input[name=file]'); if (fi) { fi.disabled = !!SCAN.pages.length; if (SCAN.pages.length) fi.value = ''; } }
+function scanReset() { SCAN.pages = []; SCAN.busy = false; }
+const loadImg = src => new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = () => rej(new Error('Не вдалося відкрити фото')); i.src = src; });
+/** Фото сторінки → обробка (поворот, режим «документ»: відтінки сірого + розтягування рівнів), JPEG ≤ 2000 px. */
+async function scanProcess(pg) {
+  const img = await loadImg(pg.src);
+  const k = Math.min(1, 2000 / Math.max(img.naturalWidth, img.naturalHeight));
+  const w0 = Math.round(img.naturalWidth * k), h0 = Math.round(img.naturalHeight * k);
+  const rot = ((pg.rot || 0) % 360 + 360) % 360, sw = rot % 180 ? h0 : w0, sh = rot % 180 ? w0 : h0;
+  const c = document.createElement('canvas'); c.width = sw; c.height = sh;
+  const x = c.getContext('2d', { willReadFrequently: true });
+  x.fillStyle = '#fff'; x.fillRect(0, 0, sw, sh);
+  x.translate(sw / 2, sh / 2); x.rotate(rot * Math.PI / 180); x.drawImage(img, -w0 / 2, -h0 / 2, w0, h0); x.setTransform(1, 0, 0, 1, 0, 0);
+  if (SCAN.mode === 'doc') {
+    const id = x.getImageData(0, 0, sw, sh), d = id.data, n = sw * sh, G = new Uint8Array(n);
+    for (let i = 0, j = 0; j < n; i += 4, j++) G[j] = (d[i] * 299 + d[i + 1] * 587 + d[i + 2] * 114) / 1000 | 0;
+    // фон (освітлення) — максимум у блоках 24×24, згладжений; ділення на фон вирівнює тіні й світлові плями
+    const B = 24, bw = Math.ceil(sw / B), bh = Math.ceil(sh / B); let bg = new Float32Array(bw * bh);
+    for (let by = 0; by < bh; by++) for (let bx = 0; bx < bw; bx++) {
+      let m = 0; const y1 = Math.min(sh, (by + 1) * B), x1 = Math.min(sw, (bx + 1) * B);
+      for (let yy = by * B; yy < y1; yy += 2) for (let xx = bx * B, o = yy * sw + xx; xx < x1; xx += 2, o += 2) if (G[o] > m) m = G[o];
+      bg[by * bw + bx] = m;
+    }
+    for (let pass = 0; pass < 3; pass++) {
+      const t = new Float32Array(bw * bh);
+      for (let y = 0; y < bh; y++) for (let xx = 0; xx < bw; xx++) {
+        let sum = 0, c2 = 0;
+        for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) { const yy = y + dy, x2 = xx + dx; if (yy >= 0 && yy < bh && x2 >= 0 && x2 < bw) { sum += bg[yy * bw + x2]; c2++; } }
+        t[y * bw + xx] = sum / c2;
+      }
+      bg = t;
+    }
+    const hist = new Uint32Array(256), N = new Uint8Array(n);
+    for (let y = 0; y < sh; y++) {
+      const fy = Math.min(bh - 1, Math.max(0, y / B - 0.5)), y0 = fy | 0, y2 = Math.min(bh - 1, y0 + 1), ty = fy - y0;
+      for (let xx = 0; xx < sw; xx++) {
+        const fx = Math.min(bw - 1, Math.max(0, xx / B - 0.5)), x0 = fx | 0, x2 = Math.min(bw - 1, x0 + 1), tx = fx - x0;
+        const b0 = bg[y0 * bw + x0] * (1 - tx) + bg[y0 * bw + x2] * tx, b1 = bg[y2 * bw + x0] * (1 - tx) + bg[y2 * bw + x2] * tx;
+        const v = Math.min(255, G[y * sw + xx] * 255 / Math.max(24, b0 * (1 - ty) + b1 * ty)) | 0;
+        N[y * sw + xx] = v; hist[v]++;
+      }
+    }
+    const pct = q => { let acc = 0; for (let v = 0; v < 256; v++) { acc += hist[v]; if (acc >= n * q) return v; } return 255; };
+    const lo = Math.min(pct(0.01), 200), hi = Math.max(lo + 30, Math.min(250, pct(0.6)));
+    const lut = new Uint8ClampedArray(256);
+    for (let v = 0; v < 256; v++) { const t = Math.min(1, Math.max(0, (v - lo) / (hi - lo))); lut[v] = 255 * Math.pow(t, 1.6); }
+    for (let i = 0, j = 0; j < n; i += 4, j++) { const g = lut[N[j]]; d[i] = d[i + 1] = d[i + 2] = g; }
+    x.putImageData(id, 0, 0);
+  }
+  pg.jpeg = c.toDataURL('image/jpeg', SCAN.mode === 'doc' ? 0.72 : 0.8); pg.w = sw; pg.h = sh;
+  const t = document.createElement('canvas'), tk = 160 / Math.max(sw, sh); t.width = Math.round(sw * tk); t.height = Math.round(sh * tk);
+  t.getContext('2d').drawImage(c, 0, 0, t.width, t.height); pg.thumb = t.toDataURL('image/jpeg', 0.7);
+}
+async function scanAdd(files) {
+  SCAN.busy = true; scanRefresh();
+  try {
+    for (const f of files) {
+      if (!/^image\//.test(f.type) && !/\.(jpe?g|png|heic|heif|webp)$/i.test(f.name)) continue;
+      const src = await new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(f); });
+      const pg = { src, rot: 0 }; await scanProcess(pg); SCAN.pages.push(pg);
+    }
+  } catch (e) { toast(e.message || 'Помилка обробки фото'); }
+  SCAN.busy = false; UI.dirty = true; scanRefresh();
+}
+document.addEventListener('change', e => { const el = e.target; if (el.matches && el.matches('input[data-scan]') && el.files && el.files.length) { e.stopImmediatePropagation(); const fs = [...el.files]; el.value = ''; scanAdd(fs); } }, true);
+ACTS.scanrot = async d => { const pg = SCAN.pages[+d.i]; if (!pg) return; pg.rot = (pg.rot || 0) + 90; await scanProcess(pg); scanRefresh(); };
+ACTS.scandel = d => { SCAN.pages.splice(+d.i, 1); scanRefresh(); };
+ACTS.scanup = d => { const i = +d.i; if (i > 0) { [SCAN.pages[i - 1], SCAN.pages[i]] = [SCAN.pages[i], SCAN.pages[i - 1]]; } scanRefresh(); };
+ACTS.scanclear = async () => { if (!await ask('Видалити всі відскановані сторінки?', 'Видалити')) return; scanReset(); scanRefresh(); };
+ACTS.scanmode = async d => { if (SCAN.mode === d.v) return; SCAN.mode = d.v; SCAN.busy = true; scanRefresh(); for (const pg of SCAN.pages) await scanProcess(pg); SCAN.busy = false; scanRefresh(); };
+ACTS.scanview = d => { const pg = SCAN.pages[+d.i]; if (!pg) return; const ov = document.createElement('div'); ov.className = 'phov'; ov.innerHTML = `<img src="${pg.jpeg}" alt="сторінка"><p>Сторінка ${+d.i + 1} з ${SCAN.pages.length}</p><button type="button" class="btn">Закрити</button>`; ov.onclick = () => ov.remove(); document.body.appendChild(ov); };
+ACTS.scanpdf = async () => {
+  const f = await scanPdfFile('Скан протоколу');
+  const url = URL.createObjectURL(f); const w = window.open(url, '_blank'); setTimeout(() => URL.revokeObjectURL(url), 120000);
+  if (!w) await saveFile(f.name, f);
+};
+/** Сторінки скану → PDF-файл (кожна сторінка — JPEG на аркуші A4 відповідної орієнтації). */
+async function scanPdfFile(name) {
+  const pages = SCAN.pages.map(pg => { const b = atob(pg.jpeg.split(',')[1]); const u = new Uint8Array(b.length); for (let i = 0; i < b.length; i++) u[i] = b.charCodeAt(i); return { jpeg: u, w: pg.w, h: pg.h }; });
+  const blob = makePdf(pages);
+  return new File([blob], String(name || 'Скан').replace(/[\\/:*?"<>|]/g, '_') + '.pdf', { type: 'application/pdf' });
+}
+function makePdf(pages) {
+  const enc = s => { const u = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) u[i] = s.charCodeAt(i) & 255; return u; };
+  const parts = [], offs = []; let len = 0;
+  const push = x => { const b = typeof x === 'string' ? enc(x) : x; parts.push(b); len += b.length; };
+  const obj = (n, ...body) => { offs[n] = len; push(n + ' 0 obj\n'); body.forEach(push); push('\nendobj\n'); };
+  push('%PDF-1.4\n%\xE2\xE3\xCF\xD3\n');
+  const N = 2 + pages.length * 3;
+  obj(1, '<< /Type /Catalog /Pages 2 0 R >>');
+  obj(2, `<< /Type /Pages /Count ${pages.length} /Kids [${pages.map((_, i) => (3 + i * 3) + ' 0 R').join(' ')}] >>`);
+  pages.forEach((p, i) => {
+    const land = p.w > p.h, PW = land ? 842 : 595, PH = land ? 595 : 842;
+    const k = Math.min(PW / p.w, PH / p.h), dw = +(p.w * k).toFixed(2), dh = +(p.h * k).toFixed(2), dx = +((PW - dw) / 2).toFixed(2), dy = +((PH - dh) / 2).toFixed(2);
+    const n = 3 + i * 3, cs = `q ${dw} 0 0 ${dh} ${dx} ${dy} cm /Im0 Do Q`;
+    obj(n, `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${PW} ${PH}] /Resources << /XObject << /Im0 ${n + 2} 0 R >> >> /Contents ${n + 1} 0 R >>`);
+    obj(n + 1, `<< /Length ${cs.length} >>\nstream\n${cs}\nendstream`);
+    obj(n + 2, `<< /Type /XObject /Subtype /Image /Width ${p.w} /Height ${p.h} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${p.jpeg.length} >>\nstream\n`, p.jpeg, '\nendstream');
+  });
+  const xref = len;
+  push(`xref\n0 ${N + 1}\n0000000000 65535 f \n` + Array.from({ length: N }, (_, i) => String(offs[i + 1]).padStart(10, '0') + ' 00000 n \n').join(''));
+  push(`trailer\n<< /Size ${N + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`);
+  return new Blob(parts, { type: 'application/pdf' });
+}
 /** Наступний № протоколу для обʼєкта й методу (підказка; можна змінити). */
 function nextProtoNo(oid, method) {
   const ns = protoRows().filter(p => p.objectId === oid && (!method || p.method === method)).map(p => parseInt((String(p.number).match(/\d+/) || ['0'])[0], 10)).filter(n => n > 0);
@@ -161,6 +284,7 @@ ROUTES.protocols = tid => {
       <div class="grid2">${fInp('Дата видачі', 'date', dr.date || today(), { type: 'date', req: true })}${fSel('Бригада', 'brigade', BRIGADES.map(n => [n, brName(n)]), brig, { none: '—', hint: oid ? 'бригада, що виконує роботи на обʼєкті' : '' })}</div>
       ${fInp('Дані вносить (прізвище працівника)', 'enteredBy', by, own ? { ro: true, hint: 'за вашим входом у портал' } : { req: true, ph: 'Прізвище І.Б.' })}
       <label class="f"><span>Файл протоколу *</span><input type="file" name="file" accept="application/pdf,image/*,.doc,.docx,.xls,.xlsx"><small>Зберігається на Google Диску в папці «Протоколи НК / ${oid ? esc(objShort(oid)) : 'коротка назва обʼєкта'}» — папка створюється автоматично. Оновлену версію можна додати пізніше кнопкою «⬆ Оновлена версія» в реєстрі — обидві версії зберігаються в цій папці.</small></label>
+      ${scanBox()}
       ${fInp('Примітка', 'note', dr.note || '', { ph: 'напр. стики № 12–24, Ø 530' })}
       <div class="form-actions"><button type="submit" class="btn primary">Зареєструвати</button></div></form>`);
   }
