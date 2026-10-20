@@ -210,6 +210,7 @@ ROUTES.taskform = (id = 'new', brig) => {
     `<div class="grid2">${fInp('Місяць', 'month', d.month, { type: 'month', req: true })}
      ${fSel('Бригада', 'brigade', BRIGADES.map(n => [n, brName(n)]), d.brigade, { req: true })}</div>
      ${fSel('Обʼєкт', 'objectId', objOpts(), d.objectId, { req: true, none: '— оберіть обʼєкт —', re: true })}
+     ${taskSiteFields(d)}
      <div class="grid2">${fInp('Початок', 'dateFrom', d.dateFrom, { type: 'date', req: true })}${fInp('Закінчення', 'dateTo', d.dateTo, { type: 'date', req: true })}</div>
      ${fSel('Вид робіт', 'workType', WORK_TYPES, d.workType, { none: '—' })}
      ${fMulti('Методи контролю', 'methods', METHODS, methodsOf(d.methods))}
@@ -221,13 +222,59 @@ ROUTES.taskform = (id = 'new', brig) => {
      ${fArea('Примітка', 'note', d.note)}`;
   return page(id === 'new' ? 'Нове завдання' : 'Завдання', taskObjCard(d.objectId, src && src.objectId === d.objectId ? src : null) + (src ? card('Наказ на відрядження', orderBlock(src)) : '') + form('task', id, body, src ? { del: { t: 'Завдання', id, back: '#/tasks' } } : {}), '#/tasks');
 };
-ONCHANGE.task = d => { const o = get('Обʼєкти', d.objectId); if (o && !d.diameters) d.diameters = o.diameter; };
+ONCHANGE.task = (d, field) => {
+  const o = get('Обʼєкти', d.objectId);
+  if (o && !d.diameters) d.diameters = o.diameter;
+  if (field === 'objectId') { d.contact = o ? o.contact || '' : ''; d.settlement = o ? o.settlement || '' : ''; }
+};
+/** Відповідальний від замовника (пошук за списком) і населений пункт, найближчий до місця робіт (довільно) — зберігаються в картці обʼєкта. */
+function taskSiteFields(d) {
+  const o = get('Обʼєкти', d.objectId);
+  if (!o) return '';
+  const contact = d.contact !== undefined ? d.contact : o.contact || '';
+  const settlement = d.settlement !== undefined ? d.settlement : o.settlement || '';
+  const rp = objResp({ contact });
+  return `<fieldset class="f sitefs"><legend>На місці робіт</legend>
+    <label class="f respf"><span>Відповідальний від замовника</span>
+      <div class="respwrap"><input name="contact" value="${esc(contact)}" autocomplete="off" placeholder="🔍 Почніть вводити прізвище…" data-resp><div class="respdd" hidden></div></div>
+      <small>${rp ? `✓ ${esc(rp.posada || 'відповідальний від замовника')}${rp.phone ? ' · 📞 ' + esc(rp.phone) : ''}` : contact ? '<span class="warn">немає у списку «Відповідальні від замовника» — буде збережено як текст</span>' : `оберіть зі списку (${visitors().length}) — <a href="#/personform/new/visitor">додати нового</a>`}</small></label>
+    ${fInp('Населений пункт, найближчий до місця робіт', 'settlement', settlement, { ph: 'напр. с. Кривенькове, 3 км від КС', hint: 'у довільній формі' })}
+    <small class="mute">Зберігається в картці обʼєкта «${esc(o.short || '')}».</small></fieldset>`;
+}
+const respMatches = q => { q = String(q || '').trim().toLowerCase(); const vs = visitors(); return (q ? vs.filter(p => [p.pib, p.posada, p.phone].join(' ').toLowerCase().includes(q)) : vs).sort((a, b) => String(a.pib).localeCompare(String(b.pib), 'uk')).slice(0, 8); };
+function respDropdown(inp) {
+  const dd = inp.parentElement.querySelector('.respdd'); if (!dd) return;
+  const list = respMatches(inp.value);
+  dd.innerHTML = list.length ? list.map(p => `<button type="button" class="respopt" data-pib="${esc(p.pib)}"><b>${esc(p.pib)}</b><span class="small mute">${esc([p.posada, p.phone].filter(Boolean).join(' · '))}</span></button>`).join('') : '<div class="small mute respnone">Не знайдено у списку — буде збережено як текст</div>';
+  dd.hidden = false;
+  const sm = inp.closest('.respf').querySelector('small'), rp = objResp({ contact: inp.value });
+  if (sm) sm.innerHTML = rp ? `✓ ${esc(rp.posada || 'відповідальний від замовника')}${rp.phone ? ' · 📞 ' + esc(rp.phone) : ''}` : inp.value.trim() ? '<span class="warn">немає у списку «Відповідальні від замовника» — буде збережено як текст</span>' : `оберіть зі списку (${visitors().length})`;
+}
+document.addEventListener('focusin', e => { if (e.target.matches && e.target.matches('input[data-resp]')) respDropdown(e.target); });
+document.addEventListener('input', e => { if (e.target.matches && e.target.matches('input[data-resp]')) respDropdown(e.target); });
+document.addEventListener('pointerdown', e => {
+  const opt = e.target.closest && e.target.closest('.respopt');
+  if (opt) { e.preventDefault(); const inp = opt.closest('.respf').querySelector('input[data-resp]'); inp.value = opt.dataset.pib; inp.closest('.respf').querySelector('.respdd').hidden = true; const f = inp.closest('form'); const key = 'task:' + (f.dataset.id || 'new'); UI.draft[key] = { ...(UI.draft[key] || {}), ...formData(f) }; UI.dirty = false; render(); UI.dirty = true; return; }
+  if (!(e.target.closest && e.target.closest('.respf'))) document.querySelectorAll('.respdd').forEach(dd => (dd.hidden = true));
+});
 FORMS.task = async (d, id) => {
   if (!need(d, [['month', 'місяць'], ['brigade', 'бригада'], ['objectId', 'обʼєкт'], ['dateFrom', 'початок'], ['dateTo', 'закінчення']])) return;
   if (d.dateTo < d.dateFrom) return toast('Дата закінчення раніша за початок');
   d.diameters = arr(d.diameters);
   const pv = {}; MKEYS.forEach(k => { if (num(d['pl_' + k])) pv[k] = num(d['pl_' + k]); delete d['pl_' + k]; });
   d.planVol = JSON.stringify(pv);
+  // відповідальний від замовника і населений пункт — у картку обʼєкта
+  const ob = get('Обʼєкти', d.objectId);
+  if (ob && (d.contact !== undefined || d.settlement !== undefined)) {
+    const contact = String(d.contact || '').trim(), settlement = String(d.settlement || '').trim(), upd = {};
+    if (contact !== String(ob.contact || '').trim()) {
+      const rp = objResp({ contact });
+      Object.assign(upd, { contact: rp ? rp.pib : contact, contactPos: rp ? rp.posada || '' : '', contactPhone: rp ? rp.phone || '' : '', contactTabNo: rp ? rp.tabNo || '' : '' });
+    }
+    if (settlement !== String(ob.settlement || '').trim()) upd.settlement = settlement;
+    if (Object.keys(upd).length) await save('Обʼєкти', { ...ob, ...upd });
+  }
+  delete d.contact; delete d.settlement;
   const src = id !== 'new' ? get('Завдання', id) : {};
   // місяць створення фіксується один раз — за ним визначається «заплановано наперед»
   const createdMonth = id !== 'new' ? taskCreatedYm(src) : ym(today());
