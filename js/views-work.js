@@ -101,11 +101,14 @@ function taskItem(t) {
     <span class="small mute">${esc(t.workType || '')}${t.requestNo ? (t.workType ? ' · ' : '') + 'заявка № ' + esc(t.requestNo) : ''}${t.orderNo ? ' · наказ № ' + esc(t.orderNo) : ''}</span>
     <span class="small">${methodsOf(t.methods).map(x => badge(esc(x))).join(' ')} ${t.diameters ? 'Ø ' + esc(arr(t.diameters).join(', ')) : ''}</span>
     <div class="tivol">${fact.n || Object.keys(plan).length ? `<span class="small mute">Виконано/план: ${donePlanText(fact, plan, t.methods)}${fact.n ? ' · ' + fact.n + ' зв.' : ''}</span>` : '<span></span>'}${!isVisitor() ? matBtnHtml(t) : ''}</div>
-    <div class="tiprot">${(n => n ? `<span role="button" tabindex="0" class="btn small ghost getproto" data-act="protopick" data-id="${esc(t.id)}" title="Вибрати й завантажити протокол НК по цьому обʼєкту">📥 Отримати<span class="hsm"> протокол</span> (${n})</span>` : '<span class="small mute getproto">протоколів ще немає</span>')(objProtos(t.objectId).length)}${!isVisitor() ? `<span role="button" tabindex="0" class="btn small btn-pastel" data-act="protoreg" data-id="${esc(t.id)}">⬆ Завантажити протокол</span>` : ''}</div>
+    ${(() => { const np = taskProtoCount(t); return np || String(t.dateFrom || '') > today() || t.status === 'перенесено' ? '' : `<div class="noproto">⚠ Немає протоколів за період ${uaDate(t.dateFrom)}${t.dateTo && t.dateTo !== t.dateFrom ? ' – ' + uaDate(t.dateTo) : ''}</div>`; })()}
+    <div class="tiprot">${(n => n ? `<span role="button" tabindex="0" class="btn small ghost getproto" data-act="protopick" data-id="${esc(t.id)}" title="Вибрати й завантажити протокол НК по цьому обʼєкту">📥 Отримати<span class="hsm"> протокол</span> (${n})</span>` : '<span class="getproto"></span>')(objProtos(t.objectId).length)}${!isVisitor() ? `<span role="button" tabindex="0" class="btn small btn-pastel" data-act="protoreg" data-id="${esc(t.id)}">⬆ Завантажити протокол</span>` : ''}</div>
   </a></div>`;
 }
 
 ACTS.protoreg = d => go('#/protocols/' + d.id);
+/** Протоколи обʼєкта за період завдання (або привʼязані до завдання). */
+const taskProtoCount = t => protoRows().filter(p => p.objectId === t.objectId && (p.taskId === t.id || (String(p.date) >= String(t.dateFrom) && String(p.date) <= String(t.dateTo || t.dateFrom)))).length;
 /** Протоколи НК обʼєкта (без PDF-матеріалів і фото звітів), нові — вгорі. */
 const objProtos = oid => protoRows().filter(p => p.objectId === oid).sort((a, b) => String(b.date).localeCompare(String(a.date)) || String(b.number).localeCompare(String(a.number), 'uk', { numeric: true }));
 /** «📥 Отримати протокол»: вікно з переліком протоколів обʼєкта, фільтр за методом, завантаження / на пошту. */

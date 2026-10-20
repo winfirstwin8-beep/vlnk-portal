@@ -430,7 +430,7 @@ ROUTES.protomon = () => {
     const miss = {};
     reportsIn(a, b, r => !isSummary(r) && (!brig || String(r.brigade) === brig) && ['rt', 'vt', 'vts', 'ut', 'uts', 'pt'].some(k => num(r[k]))).forEach(r => { if (r.objectId && !withP.has(r.objectId)) (miss[r.objectId] = miss[r.objectId] || new Set()).add(String(r.brigade)); });
     const ids = Object.keys(miss);
-    if (ids.length) h += `<div class="note warn"><b>⚠ Є обсяги НК у звітах, але немає протоколів (${ids.length}):</b><br>${ids.map(id => `<a href="#/object/${esc(id)}">${esc(objShort(id))}</a> <span class="small">(${[...miss[id]].map(n => 'Б' + n).join(', ')})</span>`).join(' · ')}</div>`;
+    if (ids.length) h += `<div class="noproto big"><b>⚠ Немає протоколів за період — є обсяги НК у звітах (${ids.length}):</b><br>${ids.map(id => `<a href="#/object/${esc(id)}">${esc(objShort(id))}</a> <span class="small">(${[...miss[id]].map(n => 'Б' + n).join(', ')})</span>`).join(' · ')}</div>`;
   }
   const open = UI.pmOpen || (UI.pmOpen = {});
   const groups = objIds.map(id => ({ id, ps: list.filter(p => p.objectId === id).sort((x, y) => String(y.date).localeCompare(String(x.date)) || String(y.number).localeCompare(String(x.number), 'uk', { numeric: true })) }))
