@@ -131,7 +131,7 @@ function scanBox() {
   return `<div class="scanbox" id="scanbox">
     <div class="row between"><b class="small">📷 Скан камерою → PDF</b>${n ? `<span class="small mute">${n} ${plural(n, 'сторінка', 'сторінки', 'сторінок')}</span>` : ''}</div>
     ${n ? `<div class="scanpages">${SCAN.pages.map((pg, i) => `<div class="scanpg"><img src="${pg.thumb}" alt="сторінка ${i + 1}" data-act="scanview" data-i="${i}"><span class="scanno">${i + 1}</span>
-      <div class="scanops"><button type="button" class="btn small ghost" data-act="scanrot" data-i="${i}" title="Повернути на 90°">↻</button>${i ? `<button type="button" class="btn small ghost" data-act="scanup" data-i="${i}" title="Перемістити вліво">←</button>` : ''}<button type="button" class="btn small ghost" data-act="scandel" data-i="${i}" title="Видалити сторінку">✕</button></div></div>`).join('')}</div>` : '<p class="small mute">Покладіть протокол на рівну темну поверхню, сфотографуйте кожну сторінку згори при доброму освітленні. Сторінки обʼєднаються в один PDF.</p>'}
+      <div class="scanops"><button type="button" class="btn small ghost" data-act="scancrop" data-i="${i}" title="Обрізати">✂</button><button type="button" class="btn small ghost" data-act="scanrot" data-i="${i}" title="Повернути на 90°">↻</button>${i ? `<button type="button" class="btn small ghost" data-act="scanup" data-i="${i}" title="Перемістити вліво">←</button>` : ''}<button type="button" class="btn small ghost" data-act="scandel" data-i="${i}" title="Видалити сторінку">✕</button></div></div>`).join('')}</div>` : '<p class="small mute">Покладіть протокол на рівну темну поверхню, сфотографуйте кожну сторінку при доброму освітленні. Межі аркуша визначаються автоматично; кнопка ✂ — обрізати вручну (перетягнути кути). Сторінки обʼєднаються в один PDF.</p>'}
     <div class="row gap wrap">
       <label class="btn small primary">📷 ${n ? 'Додати сторінку' : 'Сканувати камерою'}<input type="file" accept="image/*" capture="environment" data-scan hidden></label>
       <label class="btn small ghost">🖼 З галереї<input type="file" accept="image/*" multiple data-scan hidden></label>
@@ -145,15 +145,74 @@ function scanRefresh() { const b = $('#scanbox'); if (b) { b.outerHTML = scanBox
 function scanReset() { SCAN.pages = []; SCAN.busy = false; }
 const loadImg = src => new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = () => rej(new Error('Не вдалося відкрити фото')); i.src = src; });
 /** Фото сторінки → обробка (поворот, режим «документ»: відтінки сірого + розтягування рівнів), JPEG ≤ 2000 px. */
-async function scanProcess(pg) {
+/** Фото, повернуте на pg.rot і зменшене до ≤ max px (canvas). */
+async function scanRotated(pg, max = 2000) {
   const img = await loadImg(pg.src);
-  const k = Math.min(1, 2000 / Math.max(img.naturalWidth, img.naturalHeight));
+  const k = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight));
   const w0 = Math.round(img.naturalWidth * k), h0 = Math.round(img.naturalHeight * k);
   const rot = ((pg.rot || 0) % 360 + 360) % 360, sw = rot % 180 ? h0 : w0, sh = rot % 180 ? w0 : h0;
   const c = document.createElement('canvas'); c.width = sw; c.height = sh;
   const x = c.getContext('2d', { willReadFrequently: true });
   x.fillStyle = '#fff'; x.fillRect(0, 0, sw, sh);
   x.translate(sw / 2, sh / 2); x.rotate(rot * Math.PI / 180); x.drawImage(img, -w0 / 2, -h0 / 2, w0, h0); x.setTransform(1, 0, 0, 1, 0, 0);
+  return c;
+}
+/** Перспективне вирівнювання: чотирикутник quad (TL, TR, BR, BL; частки 0..1) → прямокутник. */
+function scanWarp(src, quad) {
+  const W0 = src.width, H0 = src.height, q = quad.map(([u, v]) => [u * W0, v * H0]);
+  const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
+  let W = Math.round(Math.max(dist(q[0], q[1]), dist(q[3], q[2]))), H = Math.round(Math.max(dist(q[0], q[3]), dist(q[1], q[2])));
+  const kk = Math.min(1, 2000 / Math.max(W, H)); W = Math.max(8, Math.round(W * kk)); H = Math.max(8, Math.round(H * kk));
+  const [[x0, y0], [x1, y1], [x2, y2], [x3, y3]] = q;
+  const dx1 = x1 - x2, dx2 = x3 - x2, dx3 = x0 - x1 + x2 - x3, dy1 = y1 - y2, dy2 = y3 - y2, dy3 = y0 - y1 + y2 - y3;
+  let a, b, c, d, e, f, g = 0, h = 0;
+  const den = dx1 * dy2 - dx2 * dy1;
+  if (Math.abs(dx3) < 1e-9 && Math.abs(dy3) < 1e-9 || Math.abs(den) < 1e-9) { a = x1 - x0; b = x3 - x0; c = x0; d = y1 - y0; e = y3 - y0; f = y0; }
+  else { g = (dx3 * dy2 - dx2 * dy3) / den; h = (dx1 * dy3 - dx3 * dy1) / den; a = x1 - x0 + g * x1; b = x3 - x0 + h * x3; c = x0; d = y1 - y0 + g * y1; e = y3 - y0 + h * y3; f = y0; }
+  const sd = src.getContext('2d', { willReadFrequently: true }).getImageData(0, 0, W0, H0).data;
+  const out = document.createElement('canvas'); out.width = W; out.height = H;
+  const ox = out.getContext('2d', { willReadFrequently: true }), od = ox.createImageData(W, H), o = od.data;
+  for (let j = 0; j < H; j++) {
+    const v = (j + 0.5) / H;
+    for (let i = 0; i < W; i++) {
+      const u = (i + 0.5) / W, z = g * u + h * v + 1;
+      let sx = (a * u + b * v + c) / z - 0.5, sy = (d * u + e * v + f) / z - 0.5;
+      if (sx < 0) sx = 0; if (sy < 0) sy = 0; if (sx > W0 - 1.001) sx = W0 - 1.001; if (sy > H0 - 1.001) sy = H0 - 1.001;
+      const ix = sx | 0, iy = sy | 0, fx = sx - ix, fy = sy - iy, p0 = (iy * W0 + ix) * 4, p1 = p0 + W0 * 4, t = (j * W + i) * 4;
+      for (let k = 0; k < 3; k++) o[t + k] = (sd[p0 + k] * (1 - fx) + sd[p0 + 4 + k] * fx) * (1 - fy) + (sd[p1 + k] * (1 - fx) + sd[p1 + 4 + k] * fx) * fy;
+      o[t + 3] = 255;
+    }
+  }
+  ox.putImageData(od, 0, 0);
+  return out;
+}
+/** Автопошук меж аркуша: світла область (поріг Оцу), найбільша звʼязна, кути — крайні точки за x±y. null — якщо не знайдено. */
+function scanDetect(src) {
+  const k = 320 / Math.max(src.width, src.height), w = Math.max(8, Math.round(src.width * k)), h = Math.max(8, Math.round(src.height * k));
+  const t = document.createElement('canvas'); t.width = w; t.height = h; const tx = t.getContext('2d', { willReadFrequently: true }); tx.drawImage(src, 0, 0, w, h);
+  const d = tx.getImageData(0, 0, w, h).data, n = w * h, G = new Uint8Array(n), hist = new Float64Array(256);
+  for (let i = 0, j = 0; j < n; i += 4, j++) { G[j] = (d[i] * 299 + d[i + 1] * 587 + d[i + 2] * 114) / 1000 | 0; hist[G[j]]++; }
+  let sum = 0; for (let v = 0; v < 256; v++) sum += v * hist[v];
+  let sB = 0, wB = 0, best = 0, thr = 128;
+  for (let v = 0; v < 256; v++) { wB += hist[v]; if (!wB) continue; const wF = n - wB; if (!wF) break; sB += v * hist[v]; const mB = sB / wB, mF = (sum - sB) / wF, bt = wB * wF * (mB - mF) * (mB - mF); if (bt > best) { best = bt; thr = v; } }
+  const lab = new Int32Array(n).fill(-1); let bestC = -1, bestN = 0; const stack = [];
+  for (let s0 = 0; s0 < n; s0++) {
+    if (G[s0] <= thr || lab[s0] >= 0) continue;
+    let cnt = 0; stack.push(s0); lab[s0] = s0;
+    while (stack.length) { const p = stack.pop(); cnt++; const px = p % w, py = (p / w) | 0;
+      for (const q of [px > 0 ? p - 1 : -1, px < w - 1 ? p + 1 : -1, py > 0 ? p - w : -1, py < h - 1 ? p + w : -1]) if (q >= 0 && lab[q] < 0 && G[q] > thr) { lab[q] = s0; stack.push(q); } }
+    if (cnt > bestN) { bestN = cnt; bestC = s0; }
+  }
+  if (bestN < n * 0.15 || bestN > n * 0.97) return null;
+  let tl = [0, 0, 1e9], tr = [0, 0, -1e9], br = [0, 0, -1e9], bl = [0, 0, 1e9];
+  for (let p = 0; p < n; p++) { if (lab[p] !== bestC) continue; const x = p % w, y = (p / w) | 0;
+    if (x + y < tl[2]) tl = [x, y, x + y]; if (x + y > br[2]) br = [x, y, x + y]; if (x - y > tr[2]) tr = [x, y, x - y]; if (x - y < bl[2]) bl = [x, y, x - y]; }
+  return [tl, tr, br, bl].map(([x, y]) => [Math.min(1, Math.max(0, (x + 0.5) / w)), Math.min(1, Math.max(0, (y + 0.5) / h))]);
+}
+async function scanProcess(pg) {
+  let c = await scanRotated(pg);
+  if (pg.quad) c = scanWarp(c, pg.quad);
+  const sw = c.width, sh = c.height, x = c.getContext('2d', { willReadFrequently: true });
   if (SCAN.mode === 'doc') {
     const id = x.getImageData(0, 0, sw, sh), d = id.data, n = sw * sh, G = new Uint8Array(n);
     for (let i = 0, j = 0; j < n; i += 4, j++) G[j] = (d[i] * 299 + d[i + 1] * 587 + d[i + 2] * 114) / 1000 | 0;
@@ -200,13 +259,58 @@ async function scanAdd(files) {
     for (const f of files) {
       if (!/^image\//.test(f.type) && !/\.(jpe?g|png|heic|heif|webp)$/i.test(f.name)) continue;
       const src = await new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(f); });
-      const pg = { src, rot: 0 }; await scanProcess(pg); SCAN.pages.push(pg);
+      const pg = { src, rot: 0 };
+      try { pg.quad = scanDetect(await scanRotated(pg, 800)); } catch (e) { pg.quad = null; }
+      await scanProcess(pg); SCAN.pages.push(pg);
     }
   } catch (e) { toast(e.message || 'Помилка обробки фото'); }
   SCAN.busy = false; UI.dirty = true; scanRefresh();
 }
 document.addEventListener('change', e => { const el = e.target; if (el.matches && el.matches('input[data-scan]') && el.files && el.files.length) { e.stopImmediatePropagation(); const fs = [...el.files]; el.value = ''; scanAdd(fs); } }, true);
-ACTS.scanrot = async d => { const pg = SCAN.pages[+d.i]; if (!pg) return; pg.rot = (pg.rot || 0) + 90; await scanProcess(pg); scanRefresh(); };
+ACTS.scanrot = async d => { const pg = SCAN.pages[+d.i]; if (!pg) return; pg.rot = (pg.rot || 0) + 90; if (pg.quad) { const r = pg.quad.map(([u, v]) => [1 - v, u]); pg.quad = [r[3], r[0], r[1], r[2]]; } await scanProcess(pg); scanRefresh(); };
+/** Редактор обрізання: 4 кути, що перетягуються; «Авто» — пошук меж аркуша; «Весь кадр» — без обрізання. */
+ACTS.scancrop = async d => {
+  const pg = SCAN.pages[+d.i]; if (!pg) return;
+  const src = await scanRotated(pg, 1400);
+  let quad = (pg.quad || [[0, 0], [1, 0], [1, 1], [0, 1]]).map(p => p.slice());
+  const ov = document.createElement('div'); ov.className = 'cropov';
+  ov.innerHTML = `<div class="crophead"><b>✂ Обрізання · сторінка ${+d.i + 1}</b><span class="small">Перетягніть кути до країв аркуша</span></div>
+    <div class="cropwrap"><canvas></canvas>${[0, 1, 2, 3].map(i => `<span class="croph" data-h="${i}"></span>`).join('')}</div>
+    <div class="cropbtns"><button type="button" class="btn small ghost" data-c="auto">🔍 Авто</button><button type="button" class="btn small ghost" data-c="full">Весь кадр</button><button type="button" class="btn small ghost" data-c="cancel">Скасувати</button><button type="button" class="btn small primary" data-c="ok">✓ Застосувати</button></div>`;
+  document.body.appendChild(ov);
+  const cv = ov.querySelector('canvas'), wrap = ov.querySelector('.cropwrap'), hs = [...ov.querySelectorAll('.croph')];
+  const maxW = Math.min(window.innerWidth - 24, 900), maxH = window.innerHeight - 150, k = Math.min(maxW / src.width, maxH / src.height);
+  const W = Math.round(src.width * k), H = Math.round(src.height * k);
+  cv.width = W; cv.height = H; wrap.style.width = W + 'px'; wrap.style.height = H + 'px';
+  const cx = cv.getContext('2d');
+  const draw = () => {
+    cx.clearRect(0, 0, W, H); cx.drawImage(src, 0, 0, W, H);
+    cx.beginPath(); cx.rect(0, 0, W, H); cx.moveTo(quad[0][0] * W, quad[0][1] * H); for (let i = 3; i >= 1; i--) cx.lineTo(quad[i][0] * W, quad[i][1] * H); cx.closePath();
+    cx.fillStyle = 'rgba(0,0,0,.45)'; cx.fill('evenodd');
+    cx.beginPath(); quad.forEach(([u, v], i) => i ? cx.lineTo(u * W, v * H) : cx.moveTo(u * W, v * H)); cx.closePath(); cx.lineWidth = 2; cx.strokeStyle = '#3b9cff'; cx.stroke();
+    hs.forEach((el, i) => { el.style.left = quad[i][0] * W + 'px'; el.style.top = quad[i][1] * H + 'px'; });
+  };
+  hs.forEach(el => {
+    el.addEventListener('pointerdown', e => {
+      e.preventDefault(); el.setPointerCapture(e.pointerId); const i = +el.dataset.h;
+      const move = ev => { const r = cv.getBoundingClientRect(); quad[i] = [Math.min(1, Math.max(0, (ev.clientX - r.left) / W)), Math.min(1, Math.max(0, (ev.clientY - r.top) / H))]; draw(); };
+      const up = () => { el.removeEventListener('pointermove', move); el.removeEventListener('pointerup', up); el.removeEventListener('pointercancel', up); };
+      el.addEventListener('pointermove', move); el.addEventListener('pointerup', up); el.addEventListener('pointercancel', up);
+    });
+  });
+  ov.addEventListener('click', async e => {
+    const b = e.target.closest('[data-c]'); if (!b) return;
+    const c = b.dataset.c;
+    if (c === 'auto') { const q = scanDetect(src); if (q) { quad = q; draw(); } else toast('Межі аркуша не знайдено — виставте кути вручну'); return; }
+    if (c === 'full') { quad = [[0, 0], [1, 0], [1, 1], [0, 1]]; draw(); return; }
+    if (c === 'ok') {
+      const full = quad.every(([u, v], i) => Math.abs(u - [0, 1, 1, 0][i]) < 0.005 && Math.abs(v - [0, 0, 1, 1][i]) < 0.005);
+      pg.quad = full ? null : quad; ov.remove(); SCAN.busy = true; scanRefresh(); await scanProcess(pg); SCAN.busy = false; scanRefresh(); return;
+    }
+    ov.remove();
+  });
+  draw();
+};
 ACTS.scandel = d => { SCAN.pages.splice(+d.i, 1); scanRefresh(); };
 ACTS.scanup = d => { const i = +d.i; if (i > 0) { [SCAN.pages[i - 1], SCAN.pages[i]] = [SCAN.pages[i], SCAN.pages[i - 1]]; } scanRefresh(); };
 ACTS.scanclear = async () => { if (!await ask('Видалити всі відскановані сторінки?', 'Видалити')) return; scanReset(); scanRefresh(); };
