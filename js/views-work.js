@@ -101,11 +101,43 @@ function taskItem(t) {
     <span class="small mute">${esc(t.workType || '')}${t.requestNo ? (t.workType ? ' · ' : '') + 'заявка № ' + esc(t.requestNo) : ''}${t.orderNo ? ' · наказ № ' + esc(t.orderNo) : ''}</span>
     <span class="small">${methodsOf(t.methods).map(x => badge(esc(x))).join(' ')} ${t.diameters ? 'Ø ' + esc(arr(t.diameters).join(', ')) : ''}</span>
     <div class="tivol">${fact.n || Object.keys(plan).length ? `<span class="small mute">Виконано/план: ${donePlanText(fact, plan, t.methods)}${fact.n ? ' · ' + fact.n + ' зв.' : ''}</span>` : '<span></span>'}${!isVisitor() ? matBtnHtml(t) : ''}</div>
-    ${!isVisitor() ? `<div class="tiprot">${(n => n ? `<span class="small mute">протоколів: ${n}</span>` : '')(protoRows().filter(p => p.objectId === t.objectId && (p.taskId === t.id || (p.date >= t.dateFrom && p.date <= (t.dateTo || t.dateFrom)))).length)}<span role="button" tabindex="0" class="btn small btn-pastel" data-act="protoreg" data-id="${esc(t.id)}">⬆ Завантажити протокол</span></div>` : ''}
+    <div class="tiprot">${(n => n ? `<span role="button" tabindex="0" class="btn small ghost getproto" data-act="protopick" data-id="${esc(t.id)}" title="Вибрати й завантажити протокол НК по цьому обʼєкту">📥 Отримати<span class="hsm"> протокол</span> (${n})</span>` : '<span class="small mute getproto">протоколів ще немає</span>')(objProtos(t.objectId).length)}${!isVisitor() ? `<span role="button" tabindex="0" class="btn small btn-pastel" data-act="protoreg" data-id="${esc(t.id)}">⬆ Завантажити протокол</span>` : ''}</div>
   </a></div>`;
 }
 
 ACTS.protoreg = d => go('#/protocols/' + d.id);
+/** Протоколи НК обʼєкта (без PDF-матеріалів і фото звітів), нові — вгорі. */
+const objProtos = oid => protoRows().filter(p => p.objectId === oid).sort((a, b) => String(b.date).localeCompare(String(a.date)) || String(b.number).localeCompare(String(a.number), 'uk', { numeric: true }));
+/** «📥 Отримати протокол»: вікно з переліком протоколів обʼєкта, фільтр за методом, завантаження / на пошту. */
+ACTS.protopick = d => {
+  const t = get('Завдання', d.id); if (!t) return;
+  const o = get('Обʼєкти', t.objectId) || {};
+  const all0 = objProtos(t.objectId);
+  const w = document.createElement('div'); w.className = 'modal';
+  let meth = 'all', q = '';
+  const methods = [...new Set(all0.map(p => p.method || 'НК'))];
+  const draw = () => {
+    const list = all0.filter(p => (meth === 'all' || (p.method || 'НК') === meth) && (!q || [p.number, p.method, p.note, uaDate(p.date)].join(' ').toLowerCase().includes(q)));
+    w.innerHTML = `<div class="modal-box protopick" role="dialog" aria-modal="true" aria-label="Протоколи обʼєкта">
+      <div class="pphead"><b>📥 Протоколи · ${esc(o.short || '')}</b><button type="button" class="btn icon ghost" data-close aria-label="Закрити">✕</button></div>
+      ${methods.length > 1 ? `<div class="seg wrap ppseg">${[['all', 'Усі · ' + all0.length], ...methods.map(m => [m, m + ' · ' + all0.filter(p => (p.method || 'НК') === m).length])].map(([v, l]) => `<button type="button" data-m="${esc(v)}" class="${meth === v ? 'on' : ''}">${esc(l)}</button>`).join('')}</div>` : ''}
+      ${all0.length > 6 ? `<input type="search" class="ppq" placeholder="Пошук: № протоколу, дата…" value="${esc(q)}">` : ''}
+      <div class="pplist">${list.length ? list.map(p => {
+        const has = !!(p.file || p.fileId) || DB.upTasks.has(p.id);
+        return `<div class="ppitem"><div><b>${esc(p.method || 'НК')}${p.number ? ' № ' + esc(p.number) : ''}</b> <span class="small mute">${uaDate(p.date)}${p.brigade ? ' · ' + esc(brName(p.brigade)) : ''}</span>${p.note ? `<div class="small mute">${esc(p.note)}</div>` : ''}</div>
+          <div class="row gap">${has ? `<button type="button" class="btn small primary" data-act="protodl" data-id="${esc(p.id)}">⬇ Завантажити</button><button type="button" class="btn small ghost" data-act="protomail" data-id="${esc(p.id)}">✉</button>` : '<span class="small mute">файл не додано</span>'}</div></div>`;
+      }).join('') : '<p class="small mute">Нічого не знайдено</p>'}</div>
+      ${!isVisitor() ? `<p class="small"><a href="#/protocols/${esc(t.id)}" data-close>Реєстр протоколів обʼєкта ›</a></p>` : ''}</div>`;
+    const inp = w.querySelector('.ppq'); if (inp) { inp.oninput = () => { q = inp.value.trim().toLowerCase(); const pos = inp.selectionStart; draw(); const i2 = w.querySelector('.ppq'); i2.focus(); i2.setSelectionRange(pos, pos); }; }
+  };
+  w.addEventListener('click', e => {
+    if (e.target === w || e.target.closest('[data-close]')) { w.remove(); return; }
+    const m = e.target.closest('[data-m]'); if (m) { meth = m.dataset.m; draw(); }
+  });
+  const esc0 = e => { if (e.key === 'Escape') { w.remove(); document.removeEventListener('keydown', esc0); } };
+  document.addEventListener('keydown', esc0);
+  draw(); document.body.appendChild(w);
+};
 /** Кнопка «📎 Матеріали» в картці обʼєкта: PDF-файли, що стосуються виконання робіт на обʼєкті. */
 function matBtnHtml(t) {
   const n = objMats(t.objectId).length;
