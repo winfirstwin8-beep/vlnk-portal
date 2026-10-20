@@ -20,7 +20,7 @@ function go(h) { if (location.hash === h) render(); else location.hash = h; }
 const NAV_GROUP = {
   home: 'home', tasks: 'tasks', taskform: 'tasks', tobj: 'tasks', brigades: 'tasks',
   reports: 'reports', reportform: 'reports', report: 'reports',
-  mon: 'mon', notifs: 'home'
+  mon: 'mon', protomon: 'mon', notifs: 'home'
 };
 
 function render() {
@@ -557,6 +557,7 @@ ROUTES.menu = () => {
     ['#/acq', '📋', 'Ознайомлення з документами', !vis],
     ['#/docs', '📚', 'Інструкції', !vis],
     ['#/nd', '📘', 'НД', !vis],
+    ['#/protomon', '📑', 'Моніторинг протоколів', true],
     ['#/fuel', '⛽', 'Паливо', !vis],
     ['#/norms', '📐', 'Норми витрат матеріалів', !vis],
     ['#/gen', '📄', 'Формування документів', !vis],

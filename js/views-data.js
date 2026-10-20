@@ -174,6 +174,66 @@ ROUTES.protocols = tid => {
   h += card('Реєстр протоколів · ' + list.length, list.length ? list.slice(0, UI.plimit || 30).map(p => protoItem(p, true)).join('') + (list.length > (UI.plimit || 30) ? `<button class="btn ghost wide" data-act="pmore">Показати ще</button>` : '') : empty('Протоколів не знайдено'));
   return page('Протоколи НК', h, tid ? '#/tasks' : '#/menu');
 };
+// ═════════ МОНІТОРИНГ ПРОТОКОЛІВ ПО ОБʼЄКТАХ ═════════
+ROUTES.protomon = () => {
+  const per = ['month', 'year', 'all'].includes(UI.pmPer) ? UI.pmPer : 'month'; UI.pmPer = per;
+  let d = UI.pmDate || today(); if (d > today()) d = UI.pmDate = today();
+  const [a, b, label] = per === 'all' ? ['0000-00-00', '9999-12-31', 'увесь час'] : per === 'month' ? [ym(d) + '-01', monthEnd(ym(d)), monthName(ym(d))] : [d.slice(0, 4) + '-01-01', d.slice(0, 4) + '-12-31', d.slice(0, 4) + ' рік'];
+  const meth = UI.pmMeth || '', brig = UI.pmBrig || '', q = String(UI.pmQ || '').trim().toLowerCase(), onlyNo = UI.pmFile === 'no';
+  const inPer = protoRows().filter(p => String(p.date) >= a && String(p.date) <= b);
+  const list = inPer.filter(p => (!meth || (p.method || 'НК') === meth) && (!brig || String(p.brigade) === brig) &&
+    (!q || [objShort(p.objectId), (get('Обʼєкти', p.objectId) || {}).name, p.number].join(' ').toLowerCase().includes(q)) &&
+    (!onlyNo || !(p.file || p.fileId || DB.upTasks.has(p.id))));
+  const hasFile = p => !!(p.file || p.fileId) || DB.upTasks.has(p.id);
+  const atEnd = per === 'all' || (per === 'month' ? ym(d) >= ym(today()) : d.slice(0, 4) >= today().slice(0, 4));
+  let h = seg('pmPer', [['month', 'Місяць'], ['year', 'Рік'], ['all', 'Увесь час']], per);
+  if (per !== 'all') h += `<div class="monthnav"><button class="btn icon" data-act="pmshift" data-k="-1">‹</button><b>${label}</b><button class="btn icon" data-act="pmshift" data-k="1"${atEnd ? ' disabled' : ''}>›</button></div>`;
+  const methods = [...new Set(inPer.map(p => p.method || 'НК'))].sort((x, y) => PROTO_METHODS.indexOf(x) - PROTO_METHODS.indexOf(y));
+  h += `<div class="filters">${fSel('Метод', 'pm1', methods.map(m => [m, m]), meth, { none: 'Усі методи' }).replace('name="pm1"', 'data-set="pmMeth"')}${fSel('Бригада', 'pm2', BRIGADES.map(n => [String(n), brName(n)]), brig, { none: 'Усі бригади' }).replace('name="pm2"', 'data-set="pmBrig"')}</div>
+    <input type="search" class="pmq" data-set="pmQ" value="${esc(UI.pmQ || '')}" placeholder="🔍 Обʼєкт або № протоколу">`;
+  const byM = {}; list.forEach(p => { const m = p.method || 'НК'; byM[m] = (byM[m] || 0) + 1; });
+  const objIds = [...new Set(list.map(p => p.objectId))];
+  const noFile = list.filter(p => !hasFile(p)).length;
+  h += kpis([['протоколів', list.length], ['обʼєктів', objIds.length], ...Object.keys(byM).sort((x, y) => PROTO_METHODS.indexOf(x) - PROTO_METHODS.indexOf(y)).map(m => [m, byM[m]]), ['без файлу', noFile ? `<span class="bad">${noFile}</span>` : '0']]);
+  if (noFile || onlyNo) h += `<p class="small"><label class="chk"><input type="checkbox" data-act="pmnofile"${onlyNo ? ' checked' : ''}> показати лише протоколи без файлу</label></p>`;
+  // обʼєкти, де за період є обсяги у звітах, але не зареєстровано жодного протоколу
+  if (per !== 'all' && !isVisitor() && !q && !meth) {
+    const withP = new Set(inPer.map(p => p.objectId));
+    const miss = {};
+    reportsIn(a, b, r => !isSummary(r) && (!brig || String(r.brigade) === brig) && ['rt', 'vt', 'vts', 'ut', 'uts', 'pt'].some(k => num(r[k]))).forEach(r => { if (r.objectId && !withP.has(r.objectId)) (miss[r.objectId] = miss[r.objectId] || new Set()).add(String(r.brigade)); });
+    const ids = Object.keys(miss);
+    if (ids.length) h += `<div class="note warn"><b>⚠ Є обсяги НК у звітах, але немає протоколів (${ids.length}):</b><br>${ids.map(id => `<a href="#/object/${esc(id)}">${esc(objShort(id))}</a> <span class="small">(${[...miss[id]].map(n => 'Б' + n).join(', ')})</span>`).join(' · ')}</div>`;
+  }
+  const open = UI.pmOpen || (UI.pmOpen = {});
+  const groups = objIds.map(id => ({ id, ps: list.filter(p => p.objectId === id).sort((x, y) => String(y.date).localeCompare(String(x.date)) || String(y.number).localeCompare(String(x.number), 'uk', { numeric: true })) }))
+    .sort((x, y) => String(y.ps[0].date).localeCompare(String(x.ps[0].date)));
+  h += groups.length ? groups.map(g => {
+    const o = get('Обʼєкти', g.id) || {};
+    const cnt = {}; g.ps.forEach(p => { const m = p.method || 'НК'; cnt[m] = (cnt[m] || 0) + 1; });
+    const nf = g.ps.filter(p => !hasFile(p)).length;
+    const isOpen = !!open[g.id];
+    return `<div class="card pmobj"><button type="button" class="pmhead" data-act="pmtoggle" data-id="${esc(g.id)}" aria-expanded="${isOpen}">
+        <span class="pmt"><b>${esc(o.short || objShort(g.id))}</b><span class="small mute">${g.ps.length} ${plural(g.ps.length, 'протокол', 'протоколи', 'протоколів')} · останній ${uaDate(g.ps[0].date)}${o.settlement ? ' · 📍 ' + esc(o.settlement) : ''}</span>
+        <span class="pmb">${Object.entries(cnt).map(([m, n]) => badge(esc(m) + ' · ' + n, 'pri')).join(' ')}${nf ? ' ' + badge('без файлу · ' + nf, 'bad') : ''}</span></span><span class="pmchev">${isOpen ? '▴' : '▾'}</span></button>
+      ${isOpen ? `<div class="pmlist">${g.ps.map(p => {
+        const has = hasFile(p), pend = DB.upTasks.has(p.id);
+        return `<div class="ppitem"><div><b>${esc(p.method || 'НК')}${p.number ? ' № ' + esc(p.number) : ''}</b> <span class="small mute">${uaDate(p.date)}${p.brigade ? ' · ' + esc(brName(p.brigade)) : ''}${p.enteredBy ? ' · ' + esc(p.enteredBy) : ''}</span>${p.note ? `<div class="small mute">${esc(p.note)}</div>` : ''}${arr(p.versions).length ? `<div class="small mute">версій: ${arr(p.versions).length + 1}</div>` : ''}</div>
+          <div class="row gap">${has && !pend ? `<button type="button" class="btn small primary" data-act="protodl" data-id="${esc(p.id)}" title="Завантажити">⬇</button>${DB.mailQ.has(p.id) ? badge('✉ у черзі', 'warn') : `<button type="button" class="btn small ghost" data-act="protomail" data-id="${esc(p.id)}" title="Надіслати на мою пошту">✉</button>`}` : pend ? badge('⏳ відправляється', 'warn') : '<span class="small bad">файл не додано</span>'}</div></div>`;
+      }).join('')}<div class="row gap pmfoot"><a class="small" href="#/object/${esc(g.id)}">Картка обʼєкта ›</a></div></div>` : ''}</div>`;
+  }).join('') : empty('За вибраний період протоколів немає');
+  if (groups.length > 1) h = h.replace('<div class="card pmobj">', `<div class="row gap pmall"><button type="button" class="btn small ghost" data-act="pmall" data-v="1">Розгорнути всі</button><button type="button" class="btn small ghost" data-act="pmall" data-v="0">Згорнути всі</button></div><div class="card pmobj">`);
+  return page('Моніторинг протоколів', h, '#/mon');
+};
+ACTS.pmtoggle = d => { const o = UI.pmOpen || (UI.pmOpen = {}); o[d.id] = !o[d.id]; render(); };
+ACTS.pmall = d => { UI.pmOpen = {}; if (d.v === '1') $$('[data-act="pmtoggle"]').forEach(b => (UI.pmOpen[b.dataset.id] = true)); render(); };
+ACTS.pmnofile = () => { UI.pmFile = UI.pmFile === 'no' ? '' : 'no'; render(); };
+ACTS.pmshift = d => {
+  const per = UI.pmPer, cur = UI.pmDate || today(), k = Number(d.k);
+  let nx = per === 'month' ? addMonths(ym(cur), k) + '-01' : (Number(cur.slice(0, 4)) + k) + '-01-01';
+  if (nx > today()) nx = today();
+  UI.pmDate = nx; render();
+};
+
 ONCHANGE.proto = (d, field) => {
   if (field === 'objectId') { UI.regObj = d.objectId; d.brigade = d.objectId ? objWorkBrigade(d.objectId) : ''; }
   if (field === 'method') UI.regMeth = d.method;

@@ -1450,6 +1450,7 @@ ROUTES.mon = () => {
   const s = agg(reps);
   let h = seg('mper', [['day', 'Доба'], ['month', 'Місяць'], ['year', 'Рік']], per) +
     `<div class="monthnav"><button class="btn icon" data-act="mshift" data-k="-1">‹</button><b>${label}</b><button class="btn icon" data-act="mshift" data-k="1"${atEnd ? ' disabled title="Майбутній період недоступний"' : ''}>›</button></div>`;
+  h += `<a class="btn ghost wide pmlink" href="#/protomon">📑 Моніторинг протоколів по обʼєктах ›</a>`;
   h += kpis([
     ['люд-год', fmtN(s.manH)], ['особл. хар-р', fmtN(s.special)], ...METHODS.map((m, i) => [mHead(m), mVals(s)[i]]),
     ['км', fmtN(s.km)], ['пальне, л', fmtN(s.fuelTotal)], ['плівка, дм²', fmtN(s.film)], ['проявник, л', fmtN3(s.dev)], ['фіксаж, л', fmtN3(s.fix)], ['пенетранти, л', fmtN3(s.pts + s.ptp + s.ptd)], ['звітів', s.n]
