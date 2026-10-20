@@ -392,3 +392,5 @@ details.fold[open] > summary { margin-bottom: 8px; }
 .tiprot{flex-wrap:wrap}.tiprot .btn{padding-left:10px;padding-right:10px}
 .tiprot{gap:6px}.tiprot .btn{font-size:12.5px;padding-left:8px;padding-right:8px}
 @media (max-width:460px){.tiprot .hsm{display:none}}
+.pmlink{margin:8px 0}.pmq{width:100%;padding:9px 12px;border:1px solid var(--line);border-radius:10px;background:var(--card);color:var(--ink);font:inherit;margin:0 0 10px}
+.card.pmobj{padding:0;overflow:hidden}.pmhead{all:unset;box-sizing:border-box;width:100%;display:flex;align-items:flex-start;gap:8px;padding:12px 14px;cursor:pointer}.pmhead:focus-visible{outline:2px solid var(--pri)}.pmt{flex:1;display:flex;flex-direction:column;gap:3px;min-width:0}.pmb{display:flex;flex-wrap:wrap;gap:4px}.pmchev{flex:none;color:var(--mute,#888);font-size:16px}.pmlist{display:flex;flex-direction:column;gap:6px;padding:0 12px 12px}.pmfoot{justify-content:flex-end}.pmall{justify-content:flex-end;margin:4px 0 8px}.ppitem .row .btn{min-width:38px}
