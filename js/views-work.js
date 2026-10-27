@@ -96,7 +96,7 @@ function taskItem(t) {
   const plan = planOf(t);
   return `<div class="item"><a class="item-link" href="${href}">
     <div class="row between"><b>${esc(o ? o.short : '—')}</b>${badge(esc(status), st)}</div>
-    ${isLead() && t.dateFrom ? `<div class="tdrow">${taskDates(t)}${objDocsBtn(t)}${pmmBtn(t)}${matBtn(t)}</div>` : taskDates(t)}
+    ${t.dateFrom ? `<div class="tdrow"><div class="tdmain">${taskDates(t)}${repBtn(t)}</div>${isLead() ? objDocsBtn(t) + pmmBtn(t) + matBtn(t) : ''}</div>` : taskDates(t)}
     ${objMeta(o)}
     <span class="small mute">${esc(t.workType || '')}${t.requestNo ? (t.workType ? ' · ' : '') + 'заявка № ' + esc(t.requestNo) : ''}${t.orderNo ? ' · наказ № ' + esc(t.orderNo) : ''}</span>
     <span class="small">${methodsOf(t.methods).map(x => badge(esc(x))).join(' ')} ${t.diameters ? 'Ø ' + esc(arr(t.diameters).join(', ')) : ''}</span>
@@ -574,6 +574,26 @@ function objDocOf(t) {
   const exact = ds.find(d => d.dateFrom === t.dateFrom && d.dateTo === (t.dateTo || t.dateFrom));
   return exact ? { doc: exact, exact: true } : ds[0] ? { doc: ds[0], exact: false } : null;
 }
+/** «Надати звіт» — щоденний звіт по цьому завданню (поки завдання триває). */
+function repBtn(t) {
+  if (!canReport() || isVisitor() || t.status === 'перенесено') return '';
+  const d = today();
+  if (!(String(t.dateFrom) <= d && d <= String(t.dateTo || t.dateFrom))) return '';
+  const ex = all('Звіти').find(r => r.date === d && String(r.brigade) === String(t.brigade) && r.objectId === t.objectId && !isSummary(r));
+  return `<span role="button" tabindex="0" class="btn small ${ex ? 'ghost' : 'primary'} tdbtn repbtn" data-act="taskrep" data-id="${esc(t.id)}" title="${ex ? 'Звіт за сьогодні вже подано — відкрити для змін' : 'Подати щоденний звіт по цьому обʼєкту'}"><i>${ex ? '✓' : '📝'}</i>${ex ? 'Звіт подано' : 'Надати звіт'}</span>`;
+}
+ACTS.taskrep = d => {
+  const t = get('Завдання', d.id); if (!t) return;
+  const day = today();
+  const ex = all('Звіти').find(r => r.date === day && String(r.brigade) === String(t.brigade) && r.objectId === t.objectId && !isSummary(r));
+  if (ex) { toast('Звіт за сьогодні вже подано — відкриваю для змін'); return go(canEditReport(ex) ? '#/reportform/' + ex.id : '#/report/' + ex.id); }
+  const me = get('Персонал', ME.personId) || {};
+  const r = { date: day, brigade: String(t.brigade), schedule: me.schedule || '8', travel: false };
+  fillFromBrigade(r); fillFromTask(r, t);
+  if (!r.vol || !r.vol.length) r.vol = [{ d: '' }];
+  UI.draft['report:new'] = r; UI.allowNewRep = true;
+  go('#/reportform/new');
+};
 function objDocsBtn(t) {
   const sd = objDocOf(t);
   return `<span role="button" tabindex="0" class="btn small ${sd && sd.exact ? 'ghost' : 'primary'} tdbtn" data-act="objdocs" data-id="${esc(t.id)}" title="Звіт про відрядження, табель перебування, табель машин і механізмів"><i>${sd && sd.exact ? '✓' : '📄'}</i>Табеля для замовника</span>`;
