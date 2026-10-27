@@ -1,13 +1,14 @@
 /* Портал ВЛНК — ядро: утиліти, локальна база (IndexedDB), синхронізація, розрахунки */
 'use strict';
 
-const VER = '1.9.8';
+const VER = '1.9.9';
 /** Мінімальна версія серверного коду (Code.gs), з якою працює цей застосунок. */
 const NEED_API = '1.9.0';
 const CORP_RE = /@([a-z0-9-]+\.)*tsoua\.com$/i; // корпоративні адреси
 /** Що нового — показується один раз після оновлення (коротко, для працівників). */
 const CHANGES = {
-  '1.9.8': ['Ще → «Доступ до порталу» → запрошення: кнопка «📧 Надіслати з моєї корпоративної пошти» — лист відкривається в Outlook уже заповненим, іде з вашої адреси @tsoua.com і не потрапляє в «Небажану пошту»'],
+  '1.9.9': ['Сповіщення: портал перевіряє зміни кожні 2 хв (і в згорнутому стані), при поверненні у вікно; працівникам без бригади на місяць — сповіщення за бригадою з картки або про всі завдання; на сторінці сповіщень — час останньої перевірки і кнопка «Перевірити зараз»'],
+  '1.9.8': ['Відповідальний від замовника і населений пункт тепер привʼязані до завдання, а не до обʼєкта: у наступному завданні на тому ж обʼєкті підставляються дані з попереднього завдання; у картці завдання, табелях, СЗ і відомостях, списанні ПММ і матеріалів — дані саме цього завдання'],
   '1.9.7': ['Завдання → додавання обʼєкта в роботу: блок «На місці робіт» — відповідальний від замовника (пошук за списком за прізвищем, посадою чи телефоном) і населений пункт, найближчий до місця робіт (у довільній формі); дані зберігаються в картці обʼєкта'],
   '1.9.6': ['Завдання і Планування: якщо за період завдання по обʼєкту немає жодного протоколу — напис «⚠ Немає протоколів за період» на світло-червоному тлі; так само виділено попередження в «Моніторингу протоколів»'],
   '1.9.5': ['Скан протоколу камерою: обрізання сторінок — межі аркуша визначаються автоматично, кнопка ✂ відкриває редактор із 4 кутами (перетягуються пальцем), аркуш, знятий під кутом, вирівнюється в рівний прямокутник; «🔍 Авто», «Весь кадр»'],
@@ -198,6 +199,27 @@ function shiftDoc(s) {
   return ov ? { doc: ov, exact: false } : null;
 }
 /** Телефон відповідального: з картки обʼєкта, інакше — з картки відповідального від замовника. */
+// ───────── відповідальний від замовника і населений пункт — на рівні завдання ─────────
+// Зберігаються в полі завдання volumePlan (JSON), тож серверну частину змінювати не потрібно.
+const SITE_KEYS = ['contact', 'contactPos', 'contactPhone', 'contactTabNo', 'settlement'];
+function taskSite(t) {
+  if (!t || !t.volumePlan) return null;
+  try { const s = typeof t.volumePlan === 'string' ? JSON.parse(t.volumePlan) : t.volumePlan; return s && typeof s === 'object' && !Array.isArray(s) && SITE_KEYS.some(k => String(s[k] || '').trim()) ? s : null; } catch (e) { return null; }
+}
+/** Обʼєкт завдання з відповідальним і населеним пунктом цього завдання (якщо їх задано в завданні). */
+function taskObj(t) {
+  const o = t && get('Обʼєкти', t.objectId); if (!o) return null;
+  const s = taskSite(t);
+  return s ? { ...o, ...Object.fromEntries(SITE_KEYS.map(k => [k, String(s[k] || '')])) } : o;
+}
+/** Дані «на місці робіт» з попереднього завдання на цьому обʼєкті (інакше — з картки обʼєкта). */
+function prevSite(oid, exceptId) {
+  const ts = all('Завдання').filter(t => t.objectId === oid && t.id !== exceptId && taskSite(t))
+    .sort((a, b) => String(b.dateFrom).localeCompare(String(a.dateFrom)) || num(b.updatedAt) - num(a.updatedAt));
+  if (ts.length) return taskSite(ts[0]);
+  const o = get('Обʼєкти', oid) || {};
+  return Object.fromEntries(SITE_KEYS.map(k => [k, o[k] || '']));
+}
 const respPhone = o => String((o && o.contactPhone) || (objResp(o) || {}).phone || '').trim();
 /** Обʼєкти, за які відповідає представник замовника. */
 const respObjects = p => all('Обʼєкти').filter(o => { const r = objResp(o); return r && r.id === p.id; });
@@ -415,13 +437,14 @@ const NOTIF = { fresh: [] };
 const notifList = () => LS.json('notifs') || [];
 const notifUnread = () => notifList().filter(x => !x.read).length;
 function notifSave(list) { LS.set('notifs', JSON.stringify(list.slice(0, 150))); }
-const NOTIF_TASK_FIELDS = [['status', 'статус'], ['dateFrom', 'початок'], ['dateTo', 'кінець'], ['brigade', 'бригада'], ['objectId', 'обʼєкт'], ['methods', 'методи НК'], ['diameters', 'діаметри'], ['planVol', 'плановий обсяг'], ['workType', 'вид робіт'], ['requestNo', 'заявка'], ['note', 'примітка']];
+const NOTIF_TASK_FIELDS = [['status', 'статус'], ['dateFrom', 'початок'], ['dateTo', 'кінець'], ['brigade', 'бригада'], ['objectId', 'обʼєкт'], ['methods', 'методи НК'], ['diameters', 'діаметри'], ['planVol', 'плановий обсяг'], ['workType', 'вид робіт'], ['requestNo', 'заявка'], ['volumePlan', 'на місці робіт'], ['note', 'примітка']];
 function notifFmt(k, v) {
   if (v === undefined || v === null || v === '') return '—';
   if (k === 'dateFrom' || k === 'dateTo') return uaDate(v);
   if (k === 'brigade') return brName(v);
   if (k === 'objectId') { const o = get('Обʼєкти', v); return o ? o.short || o.name : String(v); }
   if (k === 'methods' || k === 'diameters') return arr(v).join(', ') || '—';
+  if (k === 'volumePlan') { const x = taskSite({ volumePlan: v }); return x ? [x.contact, x.settlement && '📍 ' + x.settlement].filter(Boolean).join(', ') || '—' : '—'; }
   if (k === 'planVol') { try { const o = typeof v === 'string' ? JSON.parse(v || '{}') : v; return Object.entries(o || {}).filter(([, x]) => x).map(([a, x]) => a.toUpperCase() + ' ' + x).join(', ') || '—'; } catch (e) { return String(v); } }
   return String(v);
 }
@@ -430,7 +453,12 @@ const notifSame = (a, b) => JSON.stringify(a === undefined || a === null ? '' : 
 function notifMineTask(t) {
   if (!ME || !ME.personId) return true;
   const m = t.month || ym(t.dateFrom || today());
-  return all('Бригади').some(b => b.month === m && String(b.num) === String(t.brigade) && brigadeMembers(b).includes(ME.personId));
+  const bs = all('Бригади').filter(b => b.month === m);
+  const mine = bs.find(b => brigadeMembers(b).includes(ME.personId));
+  if (mine) return String(mine.num) === String(t.brigade);
+  // у складі бригад місяця людини немає — за бригадою з картки працівника, інакше всі завдання
+  const pb = String((get('Персонал', ME.personId) || {}).brigade || '').trim();
+  return pb ? pb === String(t.brigade) : true;
 }
 /** Порівнює рядок до і після синхронізації та готує сповіщення (лише зміни інших користувачів). */
 function notifCheck(t, old, r) {

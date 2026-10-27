@@ -88,7 +88,7 @@ function taskDates(t) {
 }
 
 function taskItem(t) {
-  const o = get('Обʼєкти', t.objectId);
+  const o = taskObj(t);
   const status = taskStatus(t);
   const st = { 'заплановано': '', 'в роботі': 'pri', 'виконано': 'ok', 'перенесено': 'warn' }[status] || '';
   const fact = agg(all('Звіти').filter(r => r.taskId === t.id));
@@ -114,7 +114,7 @@ const objProtos = oid => protoRows().filter(p => p.objectId === oid).sort((a, b)
 /** «📥 Отримати протокол»: вікно з переліком протоколів обʼєкта, фільтр за методом, завантаження / на пошту. */
 ACTS.protopick = d => {
   const t = get('Завдання', d.id); if (!t) return;
-  const o = get('Обʼєкти', t.objectId) || {};
+  const o = taskObj(t) || {};
   const all0 = objProtos(t.objectId);
   const w = document.createElement('div'); w.className = 'modal';
   let meth = 'all', q = '';
@@ -150,7 +150,7 @@ ACTS.objmat = d => { UI.matBack = location.hash && !location.hash.startsWith('#/
 ROUTES.objmat = tid => {
   if (isVisitor()) return denied();
   const t = get('Завдання', tid); if (!t) return notFound();
-  const o = get('Обʼєкти', t.objectId) || {};
+  const o = taskObj(t) || {};
   const list = objMats(t.objectId);
   const back = UI.matBack || '#/tasks';
   let h = `<div class="note">${esc(o.short || '')}${o.name ? ' · ' + esc(o.name) : ''}<br><span class="small">${brName(t.brigade)} · ${uaDate(t.dateFrom)} – ${uaDate(t.dateTo || t.dateFrom)}</span></div>`;
@@ -189,7 +189,7 @@ FORMS.objmat = async (d, tid, f) => {
 };
 /** Обʼєкт завдання: повна назва, населений пункт, відповідальний від замовника з телефоном. */
 function taskObjCard(oid, t) {
-  const o = get('Обʼєкти', oid); if (!o) return '';
+  const o = t && t.objectId === oid ? taskObj(t) : get('Обʼєкти', oid); if (!o) return '';
   const ph = respPhone(o);
   return `<div class="card objcard"><div class="row between"><b>${esc(o.short || '')}</b><a class="small" href="#/object/${esc(o.id)}">Картка обʼєкта ›</a></div>
     ${o.name ? `<p class="objfull">${esc(o.name)}</p>` : ''}
@@ -225,21 +225,22 @@ ROUTES.taskform = (id = 'new', brig) => {
 ONCHANGE.task = (d, field) => {
   const o = get('Обʼєкти', d.objectId);
   if (o && !d.diameters) d.diameters = o.diameter;
-  if (field === 'objectId') { d.contact = o ? o.contact || '' : ''; d.settlement = o ? o.settlement || '' : ''; }
+  if (field === 'objectId') { const ps = o ? prevSite(o.id, d.id) : {}; d.contact = ps.contact || ''; d.settlement = ps.settlement || ''; }
 };
 /** Відповідальний від замовника (пошук за списком) і населений пункт, найближчий до місця робіт (довільно) — зберігаються в картці обʼєкта. */
 function taskSiteFields(d) {
   const o = get('Обʼєкти', d.objectId);
   if (!o) return '';
-  const contact = d.contact !== undefined ? d.contact : o.contact || '';
-  const settlement = d.settlement !== undefined ? d.settlement : o.settlement || '';
+  const def = taskSite(d) || prevSite(o.id, d.id);
+  const contact = d.contact !== undefined ? d.contact : def.contact || '';
+  const settlement = d.settlement !== undefined ? d.settlement : def.settlement || '';
   const rp = objResp({ contact });
   return `<fieldset class="f sitefs"><legend>На місці робіт</legend>
     <label class="f respf"><span>Відповідальний від замовника</span>
       <div class="respwrap"><input name="contact" value="${esc(contact)}" autocomplete="off" placeholder="🔍 Почніть вводити прізвище…" data-resp><div class="respdd" hidden></div></div>
       <small>${rp ? `✓ ${esc(rp.posada || 'відповідальний від замовника')}${rp.phone ? ' · 📞 ' + esc(rp.phone) : ''}` : contact ? '<span class="warn">немає у списку «Відповідальні від замовника» — буде збережено як текст</span>' : `оберіть зі списку (${visitors().length}) — <a href="#/personform/new/visitor">додати нового</a>`}</small></label>
     ${fInp('Населений пункт, найближчий до місця робіт', 'settlement', settlement, { ph: 'напр. с. Кривенькове, 3 км від КС', hint: 'у довільній формі' })}
-    <small class="mute">Зберігається в картці обʼєкта «${esc(o.short || '')}».</small></fieldset>`;
+    <small class="mute">Зберігається в цьому завданні; у наступному завданні на «${esc(o.short || '')}» підставиться автоматично.</small></fieldset>`;
 }
 const respMatches = q => { q = String(q || '').trim().toLowerCase(); const vs = visitors(); return (q ? vs.filter(p => [p.pib, p.posada, p.phone].join(' ').toLowerCase().includes(q)) : vs).sort((a, b) => String(a.pib).localeCompare(String(b.pib), 'uk')).slice(0, 8); };
 function respDropdown(inp) {
@@ -263,16 +264,13 @@ FORMS.task = async (d, id) => {
   d.diameters = arr(d.diameters);
   const pv = {}; MKEYS.forEach(k => { if (num(d['pl_' + k])) pv[k] = num(d['pl_' + k]); delete d['pl_' + k]; });
   d.planVol = JSON.stringify(pv);
-  // відповідальний від замовника і населений пункт — у картку обʼєкта
-  const ob = get('Обʼєкти', d.objectId);
-  if (ob && (d.contact !== undefined || d.settlement !== undefined)) {
-    const contact = String(d.contact || '').trim(), settlement = String(d.settlement || '').trim(), upd = {};
-    if (contact !== String(ob.contact || '').trim()) {
-      const rp = objResp({ contact });
-      Object.assign(upd, { contact: rp ? rp.pib : contact, contactPos: rp ? rp.posada || '' : '', contactPhone: rp ? rp.phone || '' : '', contactTabNo: rp ? rp.tabNo || '' : '' });
-    }
-    if (settlement !== String(ob.settlement || '').trim()) upd.settlement = settlement;
-    if (Object.keys(upd).length) await save('Обʼєкти', { ...ob, ...upd });
+  // відповідальний від замовника і населений пункт — у завданні (поле volumePlan, JSON)
+  if (d.contact !== undefined || d.settlement !== undefined) {
+    const contact = String(d.contact || '').trim(), settlement = String(d.settlement || '').trim();
+    const rp = objResp({ contact });
+    const prev = taskSite(id !== 'new' ? get('Завдання', id) : null) || {};
+    const same = prev.contact && String(prev.contact).trim() === contact;
+    d.volumePlan = contact || settlement ? JSON.stringify({ contact: rp ? rp.pib : contact, contactPos: rp ? rp.posada || '' : same ? prev.contactPos || '' : '', contactPhone: rp ? rp.phone || '' : same ? prev.contactPhone || '' : '', contactTabNo: rp ? rp.tabNo || '' : same ? prev.contactTabNo || '' : '', settlement }) : '';
   }
   delete d.contact; delete d.settlement;
   const src = id !== 'new' ? get('Завдання', id) : {};
@@ -505,7 +503,7 @@ function dayPlanTable(t, o = {}) {
 ROUTES.dayplan = id => {
   if (!isLead()) return denied();
   const t = get('Завдання', id); if (!t) return notFound();
-  const o = get('Обʼєкти', t.objectId) || {};
+  const o = taskObj(t) || {};
   const days = taskDayList(t);
   if (!days.length) return page('План по днях', empty('У завдання не вказано дати'), '#/taskform/' + id);
   const rows = dayPlanRows(t), reps = taskReps(t);
@@ -608,7 +606,7 @@ function objDocsData(t) {
 ROUTES.objdocs = id => {
   if (!isLead()) return denied();
   const t = get('Завдання', id); if (!t) return notFound();
-  const o = get('Обʼєкти', t.objectId) || {};
+  const o = taskObj(t) || {};
   const x = objDocsData(t);
   const sd = objDocOf(t);
   let h = card(`${esc(o.short || '—')} · ${uaDate(x.from)} – ${uaDate(x.to)}`, (o.name ? `<p class="objfull">${esc(o.name)}</p>` : '') + kv([
@@ -645,7 +643,7 @@ ROUTES.objdocs = id => {
 ONCHANGE.objdocs = d => { UI.draft['objdocs'] = d; };
 FORMS.objdocs = async (d, id) => {
   const t = get('Завдання', id); if (!t) return toast('Завдання не знайдено');
-  const o = get('Обʼєкти', t.objectId) || {};
+  const o = taskObj(t) || {};
   const x = objDocsData(t);
   const email = normEmails(d.email);
   if (!email) return toast('Вкажіть коректний email (кілька адрес — через кому)');
@@ -804,7 +802,7 @@ const xDateWordsUA = s => s ? `${Number(s.slice(8, 10))} ${MONTHS_GEN[Number(s.s
 ROUTES.matreq = id => {
   if (!isLead()) return denied();
   const t = get('Завдання', id); if (!t) return notFound();
-  const o = get('Обʼєкти', t.objectId) || {};
+  const o = taskObj(t) || {};
   const x = matData(t), r = matRecipient(o), sd = matDocOf(t);
   let h = card(`${esc(o.short || '—')} · ${uaDate(x.from)} – ${uaDate(x.to)}`, (o.name ? `<p class="objfull">${esc(o.name)}</p>` : '') + kv([
     ['Дата вимог', `Від <b>${esc(xDateWordsUA(x.docDate))}</b> <span class="small mute">наступний день після останнього дня робіт (${uaDate(x.lastDay)})</span>`],
@@ -816,7 +814,7 @@ ROUTES.matreq = id => {
   ]) + (sd ? `<p class="small mute">${sd.exact ? '✓ Уже сформовано' : '⚠ Формувалось на ' + uaDate(sd.doc.dateFrom) + ' – ' + uaDate(sd.doc.dateTo) + ', дати змінились'}: ${esc(fmtDT(sd.doc.sentAt))}, ${esc(sd.doc.email || '')}${arr(sd.doc.files).map(f => f && f.url ? ` · <a href="${esc(f.url)}" target="_blank" rel="noopener">${esc(/плівка/.test(f.name) ? 'плівка' : 'реактиви')} ↗</a>` : '').join('')}${resendBtn('ВимогиМатеріалів', sd.doc)}</p>` : ''));
   if (!(x.film > 0)) return page('Списання матеріалів', h + `<div class="note warn">У щоденних звітах по цьому обʼєкту за ${uaDate(x.from)} – ${uaDate(x.to)} немає витрати рентгенплівки — вимоги не формуються.</div>`, '#/plan');
   const warn = [];
-  if (!o.contact) warn.push(`Не вказано відповідального від замовника. <a href="#/objform/${esc(o.id)}">Заповнити в картці обʼєкта</a>`);
+  if (!o.contact) warn.push(`Не вказано відповідального від замовника. <a href="#/taskform/${esc(t.id)}">Вказати в завданні</a>`);
   if (!o.icp && !o.soSubOrder) warn.push(`Немає № ICP і ТОРО-підзамовлення. <a href="#/objform/${esc(o.id)}">Заповнити</a>`);
   if (warn.length) h += `<div class="note warn">${warn.join('<br>')}</div>`;
   const d = UI.draft['matreq'] || { recipientGen: r.recipientGen, email: setting('docsEmail', ''), remember: true };
@@ -831,7 +829,7 @@ ROUTES.matreq = id => {
 ONCHANGE.matreq = d => { UI.draft['matreq'] = d; };
 FORMS.matreq = async (d, id) => {
   const t = get('Завдання', id); if (!t) return toast('Завдання не знайдено');
-  const o = get('Обʼєкти', t.objectId) || {};
+  const o = taskObj(t) || {};
   const x = matData(t), r = matRecipient(o);
   if (!(x.film > 0)) return toast('Рентгенплівка не використовувалась');
   const email = normEmails(d.email);
@@ -917,7 +915,7 @@ function pmmData(t) {
 ROUTES.pmm = id => {
   if (!isLead()) return denied();
   const t = get('Завдання', id); if (!t) return notFound();
-  const o = get('Обʼєкти', t.objectId) || {};
+  const o = taskObj(t) || {};
   const x = pmmData(t);
   const sd = pmmDocOf(t);
   const so = splitOrder(periodOrder(t));
@@ -952,7 +950,7 @@ ROUTES.pmm = id => {
 ONCHANGE.pmm = d => { UI.draft['pmm'] = d; };
 FORMS.pmm = async (d, id) => {
   const t = get('Завдання', id); if (!t) return toast('Завдання не знайдено');
-  const o = get('Обʼєкти', t.objectId) || {};
+  const o = taskObj(t) || {};
   const x = pmmData(t);
   if (!x.gens.length) return toast('Немає роботи електростанції у звітах');
   const email = normEmails(d.email);
@@ -995,7 +993,7 @@ ROUTES.shiftdocs = (n, from, to) => {
   const x = shiftData(n, from, to);
   if (!x) return page('СЗ і відомість', empty('Вахту не знайдено — можливо, змінилися дати завдань') + '<a class="btn ghost" href="#/plan">← Планування</a>', '#/plan');
   const { s, workers, off, driver, nights, car } = x;
-  const objs = s.objects.map(id => get('Обʼєкти', id)).filter(Boolean);
+  const objs = s.objects.map(id => taskObj(s.tasks.filter(t => t.objectId === id).pop())).filter(Boolean);
   const noDist = objs.filter(o => !o.distBase || !o.distObj || !o.travelTime);
   const noTab = workers.filter(id => !String((get('Персонал', id) || {}).tabNo || '').trim());
   const sd = shiftDoc(s);
@@ -1043,7 +1041,7 @@ FORMS.shiftdocs = async (d, id) => {
   if (!x.workers.length) return toast('У бригади немає працівників на цей період');
   if (d.remember) await rememberEmail(email);
   if (d.remember) for (const [k, v] of [ ['lodgingPrice', String(num(d.price))]]) { const cur = all('Налаштування').find(r => r.key === k); if (!cur || String(cur.value) !== v) await save('Налаштування', cur ? { ...cur, value: v } : { key: k, value: v }); }
-  const objs = x.s.objects.map(oid => get('Обʼєкти', oid)).filter(Boolean);
+  const objs = x.s.objects.map(oid => taskObj(x.s.tasks.filter(t => t.objectId === oid).pop())).filter(Boolean);
   const shift = {
     brigade: n, from, to, price: num(d.price), email, car: x.car, orderNo: String(d.orderNo).trim(), orderDate: d.orderDate || '', base: setting('baseName', 'с. Юрівка'),
     taskIds: x.s.tasks.map(t => t.id),

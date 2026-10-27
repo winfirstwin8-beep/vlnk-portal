@@ -416,7 +416,14 @@ async function start() {
   if (!seen || UI.whatsNew && !UI.whatsNew.length) LS.set('seenVer', VER);
   if (await autoStartTasks()) toast('Заплановані завдання нового місяця переведено в роботу');
   render();
-  if (MODE === 'live') { sync(); setInterval(() => { if (document.visibilityState === 'visible') sync(); }, 5 * 60 * 1000); }
+  if (MODE === 'live') {
+    sync();
+    // перевірка змін: кожні 2 хв, коли портал відкритий, і кожні 3 хв, коли згорнутий (поки браузер його не призупинив)
+    let lastBg = 0;
+    setInterval(() => { if (!navigator.onLine) return; if (document.visibilityState === 'visible') sync(); else if (Date.now() - lastBg > 170000) { lastBg = Date.now(); sync(); } }, 2 * 60 * 1000);
+    window.addEventListener('focus', () => { if (Date.now() - DB.lastSync > 60000) sync(); });
+    window.addEventListener('pageshow', () => { if (Date.now() - DB.lastSync > 60000) sync(); });
+  }
 }
 
 // ═════════ ГОЛОВНА ═════════
@@ -597,7 +604,8 @@ ROUTES.notifs = () => {
     <div class="f"><span>Зміни завдань по обʼєктах</span>${seg('np_tasks', [['mine', 'Мої бригади'], ['all', 'Усі бригади'], ['off', 'Вимкнено']], p.tasks).replace(/data-act="set"/g, 'data-act="notifpref"')}</div>
     <div class="f"><span>Нові новини</span>${seg('np_news', [['1', 'Так'], ['0', 'Ні']], p.news ? '1' : '0').replace(/data-act="set"/g, 'data-act="notifpref"')}</div>
     <div class="f"><span>Нові PDF-матеріали до обʼєктів</span>${seg('np_mats', [['1', 'Так'], ['0', 'Ні']], p.mats ? '1' : '0').replace(/data-act="set"/g, 'data-act="notifpref"')}</div>
-    <p class="small mute">Сповіщення приходять, коли портал відкритий або згорнутий на телефоні: він перевіряє зміни при відкритті та кожні 5 хвилин. Ваші власні зміни не сповіщаються.</p>`);
+    <p class="small mute">Портал перевіряє зміни при відкритті, кожні 2 хвилини, поки він відкритий, і поки згорнутий — доки телефон його не призупинить. Якщо портал повністю закрито, сповіщення зʼявляться на дзвіночку при наступному відкритті. <b>Ваші власні зміни не сповіщаються</b> — сповіщення приходять про зміни, внесені іншими працівниками.</p>
+    <div class="row gap wrap"><span class="small">Остання перевірка: <b>${MODE === 'live' ? (DB.lastSync ? new Date(DB.lastSync).toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit' }) : '—') : 'демо'}</b>${DB.error ? ' · <span class="bad">' + esc(DB.error) + '</span>' : ''}</span>${MODE === 'live' ? '<button type="button" class="btn small ghost" data-act="sync">🔄 Перевірити зараз</button>' : ''}</div>`);
   const cnt = k => list.filter(x => k === 'all' || x.kind === k).length;
   h += `<div class="row between wrap">${seg('nkind', [['all', 'Усі · ' + cnt('all')], ['task', 'Завдання · ' + cnt('task')], ['news', 'Новини · ' + cnt('news')], ['mat', 'Матеріали · ' + cnt('mat')]], filt)}</div>`;
   h += card('Сповіщення', shown.length ? shown.map(x => {
