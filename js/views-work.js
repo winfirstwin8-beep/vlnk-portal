@@ -580,7 +580,7 @@ function repBtn(t) {
   const d = today();
   if (!(String(t.dateFrom) <= d && d <= String(t.dateTo || t.dateFrom))) return '';
   const ex = all('Звіти').find(r => r.date === d && String(r.brigade) === String(t.brigade) && r.objectId === t.objectId && !isSummary(r));
-  return `<span role="button" tabindex="0" class="btn small ${ex ? 'ghost' : 'primary'} tdbtn repbtn" data-act="taskrep" data-id="${esc(t.id)}" title="${ex ? 'Звіт за сьогодні вже подано — відкрити для змін' : 'Подати щоденний звіт по цьому обʼєкту'}"><i>${ex ? '✓' : '📝'}</i>${ex ? 'Звіт подано' : 'Надати звіт'}</span>`;
+  return `<span role="button" tabindex="0" class="btn small ${ex ? 'ghost' : 'primary'} tdbtn tdb-rep repbtn" data-act="taskrep" data-id="${esc(t.id)}" title="${ex ? 'Звіт за сьогодні вже подано — відкрити для змін' : 'Подати щоденний звіт по цьому обʼєкту'}"><i>${ex ? '✓' : '📝'}</i>${ex ? 'Звіт подано' : 'Надати звіт'}</span>`;
 }
 ACTS.taskrep = d => {
   const t = get('Завдання', d.id); if (!t) return;
@@ -596,7 +596,7 @@ ACTS.taskrep = d => {
 };
 function objDocsBtn(t) {
   const sd = objDocOf(t);
-  return `<span role="button" tabindex="0" class="btn small ${sd && sd.exact ? 'ghost' : 'primary'} tdbtn" data-act="objdocs" data-id="${esc(t.id)}" title="Звіт про відрядження, табель перебування, табель машин і механізмів"><i>${sd && sd.exact ? '✓' : '📄'}</i>Табеля для замовника</span>`;
+  return `<span role="button" tabindex="0" class="btn small ${sd && sd.exact ? 'ghost' : 'primary'} tdbtn tdb-docs" data-act="objdocs" data-id="${esc(t.id)}" title="Звіт про відрядження, табель перебування, табель машин і механізмів"><i>${sd && sd.exact ? '✓' : '📄'}</i>Табеля для замовника</span>`;
 }
 ACTS.objdocs = d => go('#/objdocs/' + d.id);
 /** Наказ на відрядження бригади на цей період: з самого завдання, інакше — із завдань тієї ж вахти, інакше — за місяць. */
@@ -806,9 +806,9 @@ function matData(t) {
 }
 function matBtn(t) {
   const x = matData(t);
-  if (!(x.film > 0)) return `<span class="btn small ghost tdbtn disabled" aria-disabled="true" title="На обʼєкті в цей період не використовувалась рентгенплівка"><i>🧾</i>Списання матеріалів</span>`;
+  if (!(x.film > 0)) return `<span class="btn small ghost tdbtn tdb-mat disabled" aria-disabled="true" title="На обʼєкті в цей період не використовувалась рентгенплівка"><i>🧾</i>Списання матеріалів</span>`;
   const sd = matDocOf(t);
-  return `<span role="button" tabindex="0" class="btn small ${sd && sd.exact ? 'ghost' : 'primary'} tdbtn" data-act="matreq" data-id="${esc(t.id)}" title="Вимоги на списання рентгенплівки і реактивів"><i>${sd && sd.exact ? '✓' : '🧾'}</i>Списання матеріалів</span>`;
+  return `<span role="button" tabindex="0" class="btn small ${sd && sd.exact ? 'ghost' : 'primary'} tdbtn tdb-mat" data-act="matreq" data-id="${esc(t.id)}" title="Вимоги на списання рентгенплівки і реактивів"><i>${sd && sd.exact ? '✓' : '🧾'}</i>Списання матеріалів</span>`;
 }
 ACTS.matreq = d => go('#/matreq/' + d.id);
 /** Одержувач / «Зі складу … в підзвіт» / «Отримав» — відповідальний від замовника. */
@@ -885,7 +885,7 @@ function pmmDocOf(t) {
 }
 function pmmBtn(t) {
   const sd = pmmDocOf(t);
-  return `<span role="button" tabindex="0" class="btn small ${sd && sd.exact ? 'ghost' : 'primary'} tdbtn" data-act="pmm" data-id="${esc(t.id)}" title="Акт на списання ПММ і відомість використання ПММ електростанції"><i>${sd && sd.exact ? '✓' : '⛽'}</i>Списання ПММ</span>`;
+  return `<span role="button" tabindex="0" class="btn small ${sd && sd.exact ? 'ghost' : 'primary'} tdbtn tdb-pmm" data-act="pmm" data-id="${esc(t.id)}" title="Акт на списання ПММ і відомість використання ПММ електростанції"><i>${sd && sd.exact ? '✓' : '⛽'}</i>Списання ПММ</span>`;
 }
 ACTS.pmm = d => go('#/pmm/' + d.id);
 /** Дані для списання ПММ: роботи електростанцій за щоденними звітами обʼєкта в період завдання. */
