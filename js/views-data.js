@@ -887,55 +887,7 @@ ROUTES.invite = id => {
     fChk('Надіслати запрошення на email (посилання на портал та інструкція)', 'send', d.send) +
     `<p class="small mute">Вхід — за одноразовим кодом, що приходить на цей email. Після зміни email людина має увійти заново з новою адресою.</p>`,
     { submit: '✉ Зберегти й запросити' }));
-  const from = myCorpEmail();
-  h += card('📧 Надіслати з моєї корпоративної пошти', `<p class="small">Лист відкриється в Outlook уже заповненим${from ? ' — від <b>' + esc(from) + '</b>' : ''}: перевірте й натисніть «Надіслати». Лист іде всередині пошти ГТСУ і не потрапляє в «Небажану пошту» отримувача.</p>
-    <p class="small mute">Email береться з поля вище${p.email ? '' : ' — спочатку збережіть його (кнопка «Зберегти й запросити», галочку можна зняти)'}. Якщо Outlook у браузері відкриється з іншого акаунта — увійдіть з корпоративної адреси.</p>
-    <div class="row gap wrap"><button type="button" class="btn primary" data-act="outlookinv" data-id="${esc(id)}" data-via="owa">Outlook у браузері</button>
-    <button type="button" class="btn ghost" data-act="outlookinv" data-id="${esc(id)}" data-via="mailto">Програма пошти</button>
-    <button type="button" class="btn ghost" data-act="outlookinv" data-id="${esc(id)}" data-via="copy">Скопіювати текст</button></div>`);
   return page('Запрошення', h, '#/access');
-};
-/** Корпоративна адреса поточного користувача (@tsoua.com) — для підпису й підказки «від кого». */
-function myCorpEmail() {
-  const me = ME && ME.personId ? get('Персонал', ME.personId) || {} : {};
-  return [ME && ME.email, me.emailCorp, me.email].find(e => CORP_RE.test(String(e || ''))) || '';
-}
-/** Текст запрошення для надсилання з власної пошти (Outlook). */
-function inviteMail(p, email) {
-  const vis = p.role === 'відвідувач', url = location.origin + location.pathname;
-  const me = ME && ME.personId ? get('Персонал', ME.personId) || {} : {};
-  const sign = ['З повагою,', me.pib ? shortName(me.pib) : (ME && ME.name) || '', me.posada || '', myCorpEmail()].filter(Boolean).join('\n');
-  const body = [
-    'Добрий день' + (p.pib ? ', ' + p.pib : '') + '!', '',
-    vis ? 'Запрошую вас до порталу ВЛНК як відповідального від замовника. У порталі ви бачитимете терміни виконання робіт на ваших обʼєктах, склад бригад, щоденні звіти та протоколи неруйнівного контролю.'
-        : 'Запрошую вас до порталу ВЛНК: завдання, щоденні звіти, обладнання та документи лабораторії.', '',
-    'Як увійти:', '1. Відкрийте ' + url, '2. Вкажіть свою пошту ' + email + '.', '3. Введіть одноразовий код, який надійде на цю пошту.', '',
-    'Якщо лист із кодом не зʼявився у «Вхідних» за кілька хвилин, перевірте папку «Небажана пошта» й позначте його «Не небажана пошта» — наступні коди надходитимуть як звичайні листи.', '',
-    sign
-  ].join('\n');
-  return { to: email, subject: 'Запрошення до порталу ВЛНК', body };
-}
-ACTS.outlookinv = async (d, el) => {
-  const p = get('Персонал', d.id); if (!p) return toast('Людину не знайдено');
-  const inp = document.querySelector('form[data-form="invite"] [name="email"]');
-  const email = String((inp && inp.value) || p.email || '').trim().toLowerCase();
-  if (!/^[^\s@,;]+@[^\s@,;]+\.[^\s@,;]+$/.test(email)) return toast('Вкажіть коректний email');
-  if (p.role === 'відвідувач' && !CORP_RE.test(email)) return toast('Відповідальні від замовника входять лише з корпоративної адреси @tsoua.com');
-  if (email !== String(p.email || '').trim().toLowerCase()) return toast('Спочатку збережіть цей email кнопкою «Зберегти й запросити» (галочку «Надіслати запрошення» можна зняти) — інакше людина не зможе увійти');
-  const m = inviteMail(p, email);
-  const q = s => encodeURIComponent(s);
-  // відкриваємо одразу, у межах натискання (інакше браузер заблокує вікно)
-  if (d.via === 'owa') window.open('https://outlook.office.com/mail/deeplink/compose?to=' + q(m.to) + '&subject=' + q(m.subject) + '&body=' + q(m.body), '_blank', 'noopener');
-  else if (d.via === 'mailto') location.href = 'mailto:' + q(m.to) + '?subject=' + q(m.subject) + '&body=' + q(m.body.replace(/\n/g, '\r\n'));
-  else {
-    const t = 'Кому: ' + m.to + '\nТема: ' + m.subject + '\n\n' + m.body;
-    try { await navigator.clipboard.writeText(t); }
-    catch (e) { const a = document.createElement('textarea'); a.value = t; document.body.appendChild(a); a.select(); try { document.execCommand('copy'); } finally { a.remove(); } }
-    toast('Текст скопійовано — вставте його в новий лист в Outlook');
-  }
-  if (!await ask(d.via === 'copy' ? 'Позначити, що запрошення надіслано з вашої пошти?' : 'Лист відкрито в Outlook. Після того як натиснете там «Надіслати» — позначте запрошення як надіслане.', 'Позначити як надіслане', 'Пізніше')) return;
-  await save('Персонал', { ...p, invitedAt: Date.now(), invitedBy: (ME.name || '') + ' (з пошти Outlook)' });
-  toast('Позначено: запрошено'); render();
 };
 ACTS.corponly = async d => {
   const on = d.v === '1';
@@ -2041,7 +1993,7 @@ ROUTES.docform = (id = 'new', sect) => {
     fArea('Текст документа (для читання в порталі)', 'text', d.text, { rows: 14, ph: '# Загальні положення\n1. …\n2. …\n\n# Вимоги безпеки перед початком роботи\n…' }) +
     `<div class="row gap"><button type="button" class="btn small ghost" data-act="doctxt">Вставити текст з файлу .txt</button><input type="file" id="doctxtfile" accept=".txt,text/plain" hidden></div>
      <p class="small mute">Рядок, що починається з «# », — заголовок розділу; порожній рядок — новий абзац. Працівник зможе підтвердити ознайомлення лише після того, як дочитає текст до кінця.</p>
-     <label class="f"><span>Файл документа (PDF, Word)${d.fileName ? ' — зараз: ' + esc(d.fileName) : ''}</span><input type="file" name="docfile" accept="application/pdf,.doc,.docx,image/*"><small>необовʼязково; відкривається з картки документа, зберігається на Диску</small></label>` +
+     <label class="f"><span>Файл документа (PDF, Word, Excel)${d.fileName ? ' — зараз: ' + esc(d.fileName) : ''}</span><input type="file" name="docfile" accept="application/pdf,.doc,.docx,.xls,.xlsx,.xlsm,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel.sheet.macroEnabled.12,image/*"><small>необовʼязково; PDF, Word (.doc, .docx), Excel (.xls, .xlsx, .xlsm — з макросами) або фото; відкривається з картки документа, зберігається на Диску</small></label>` +
     `<div class="grid2">${fInp('Редакція / версія', 'version', d.version)}${fInp('Дата введення', 'date', d.date, { type: 'date', hint: 'нова дата — повторне ознайомлення' })}</div>` +
     fChk('Обовʼязкове ознайомлення', 'required', d.required) + (nd ? '' : '<p class="small mute">Для інструкцій з охорони праці ознайомлення фіксується через інструктажі — прикріпіть інструкцію до інструктажу.</p>');
   return page(nd ? 'Нормативний документ' : 'Інструкція', form('doc', id, body, src ? { del: { t: 'Документи', id, back } } : {}), back);

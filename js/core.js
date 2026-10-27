@@ -1,12 +1,13 @@
 /* Портал ВЛНК — ядро: утиліти, локальна база (IndexedDB), синхронізація, розрахунки */
 'use strict';
 
-const VER = '1.9.9';
+const VER = '1.9.10';
 /** Мінімальна версія серверного коду (Code.gs), з якою працює цей застосунок. */
 const NEED_API = '1.9.0';
 const CORP_RE = /@([a-z0-9-]+\.)*tsoua\.com$/i; // корпоративні адреси
 /** Що нового — показується один раз після оновлення (коротко, для працівників). */
 const CHANGES = {
+  '1.9.10': ['Нормативні документи та інструкції: можна завантажувати файли Excel — .xls, .xlsx і .xlsm (з макросами)'],
   '1.9.9': ['Сповіщення: портал перевіряє зміни кожні 2 хв (і в згорнутому стані), при поверненні у вікно; працівникам без бригади на місяць — сповіщення за бригадою з картки або про всі завдання; на сторінці сповіщень — час останньої перевірки і кнопка «Перевірити зараз»'],
   '1.9.8': ['Відповідальний від замовника і населений пункт тепер привʼязані до завдання, а не до обʼєкта: у наступному завданні на тому ж обʼєкті підставляються дані з попереднього завдання; у картці завдання, табелях, СЗ і відомостях, списанні ПММ і матеріалів — дані саме цього завдання'],
   '1.9.7': ['Завдання → додавання обʼєкта в роботу: блок «На місці робіт» — відповідальний від замовника (пошук за списком за прізвищем, посадою чи телефоном) і населений пункт, найближчий до місця робіт (у довільній формі); дані зберігаються в картці обʼєкта'],
@@ -525,7 +526,9 @@ async function readFileForUpload(file) {
   }
   const buf = new Uint8Array(await file.arrayBuffer());
   let bin = ''; for (let i = 0; i < buf.length; i += 0x8000) bin += String.fromCharCode.apply(null, buf.subarray(i, i + 0x8000));
-  return { name: file.name, mime: file.type || 'application/octet-stream', data: btoa(bin) };
+  const EXT_MIME = { xlsm: 'application/vnd.ms-excel.sheet.macroEnabled.12', xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', xls: 'application/vnd.ms-excel', docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', doc: 'application/msword', pdf: 'application/pdf' };
+  const ext = (String(file.name).match(/\.([A-Za-z0-9]+)$/) || [])[1];
+  return { name: file.name, mime: file.type || EXT_MIME[String(ext || '').toLowerCase()] || 'application/octet-stream', data: btoa(bin) };
 }
 /** Ставить наказ у чергу; у демо-режимі зберігає прямо в завданні. */
 async function queueOrder(taskId, file) {
