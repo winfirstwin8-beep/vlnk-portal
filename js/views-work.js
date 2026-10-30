@@ -101,7 +101,7 @@ function taskItem(t) {
     ${objMeta(o)}
     <span class="small mute">${esc(t.workType || '')}${t.requestNo ? (t.workType ? ' · ' : '') + 'заявка № ' + esc(t.requestNo) : ''}${t.orderNo ? ' · наказ № ' + esc(t.orderNo) : ''}</span>
     <span class="small">${methodsOf(t.methods).map(x => badge(esc(x))).join(' ')} ${arr(t.diameters).length ? 'Ø ' + esc(arr(t.diameters).join(', ')) : ''}</span>
-    <div class="tivol">${fact.n || Object.keys(plan).length ? `<span class="small mute">Виконано/план: ${donePlanText(fact, plan, t.methods)}${fact.n ? ' · ' + fact.n + ' зв.' : ''}</span>` : '<span></span>'}${!isVisitor() && o ? matBtnHtml(t) : ''}</div>
+    <div class="tivol">${fact.n || Object.keys(plan).length ? `<span class="small mute">${diamPlanHtml(t, fact, plan)}Виконано/план${Object.keys(planByD(t)).length ? ' разом' : ''}: ${donePlanText(fact, plan, t.methods)}${fact.n ? ' · ' + fact.n + ' зв.' : ''}</span>` : '<span></span>'}${!isVisitor() && o ? matBtnHtml(t) : ''}</div>
     ${!o ? '' : (() => { const np = taskProtoCount(t); return np || String(t.dateFrom || '') > today() || t.status === 'перенесено' ? '' : `<div class="noproto">⚠ Немає протоколів за період ${uaDate(t.dateFrom)}${t.dateTo && t.dateTo !== t.dateFrom ? ' – ' + uaDate(t.dateTo) : ''}</div>`; })()}
     ${o ? `<div class="tiprot">${(n => n ? `<span role="button" tabindex="0" class="btn small ghost getproto" data-act="protopick" data-id="${esc(t.id)}" title="Вибрати й завантажити протокол НК по цьому обʼєкту">📥 Отримати<span class="hsm"> протокол</span> (${n})</span>` : '<span class="getproto"></span>')(objProtos(t.objectId).length)}${!isVisitor() ? `<span role="button" tabindex="0" class="btn small btn-pastel" data-act="protoreg" data-id="${esc(t.id)}">⬆ Завантажити протокол</span>` : ''}</div>` : ''}
   </a></div>`;
@@ -216,13 +216,43 @@ ROUTES.taskform = (id = 'new', brig, kind) => {
      ${fSel('Вид робіт', 'workType', WORK_TYPES, d.workType, { none: '—' })}
      ${fMulti('Методи контролю', 'methods', METHODS, methodsOf(d.methods))}
      ${diamPicker(d)}
-     <fieldset class="f"><legend>Плановий обсяг за методами</legend><div class="grid4">${METHODS.map(m => { const k = MKEY[m]; const v = d['pl_' + k] !== undefined ? d['pl_' + k] : planOf(d)[k]; return fNum(`${m} <small>${MU(k)}</small>`, 'pl_' + k, v); }).join('')}</div>
-     <small class="mute">Стики — RT, VT-W, UT-W, PT, UTT, HB; дм² — VT-S, UT-S. Працівник бачить «виконано/заплановано».</small></fieldset>
+     ${planFields(d)}
      <div class="grid2">${fInp('№ заявки НК', 'requestNo', d.requestNo)}${fInp('№ наказу на вахту (відрядження)', 'orderNo', d.orderNo, { hint: 'один наказ на виїзд бригади за місяць; можна «№ від дд.мм.рррр»' })}</div>
      ${fSel('Статус', 'status', TASK_STATUS, d.status)}
      ${fArea('Примітка', 'note', d.note)}`;
+  setTimeout(() => updPdTot($('form[data-form=task]')), 0);
   return page(id === 'new' ? 'Нове завдання' : 'Завдання', taskObjCard(d.objectId, src && src.objectId === d.objectId ? src : null) + (src ? card('Наказ на відрядження', orderBlock(src)) : '') + form('task', id, body, src ? { del: { t: 'Завдання', id, back: '#/tasks' } } : {}), '#/tasks');
 };
+/** «Виконано/план» по кожному діаметру (якщо план розписано по діаметрах). */
+function diamPlanHtml(t) {
+  const pb = planByD(t); const ds = Object.keys(pb); if (!ds.length) return '';
+  const fb = factByD(t);
+  return `<span class="dplan">${ds.sort((a, b) => num(b) - num(a)).map(dd => { const p = pb[dd], f = fb[dd] || {}; const ks = MKEYS.filter(k => p[k] || f[k]); return `<span class="dprow"><b>Ø${esc(dd)}:</b> ${ks.map(k => { const ok = p[k] && num(f[k]) >= p[k]; return `<span class="${ok ? 'ok' : ''}">${MSHORT[k]} ${fmtN(num(f[k]))}/${p[k] ? fmtN(p[k]) : '—'} ${MU(k)}</span>`; }).join(' · ')}</span>`; }).join('')}</span>`;
+}
+/** Плановий обсяг: якщо вибрано діаметри — окремо по кожному діаметру (разом рахується автоматично), інакше — загалом за методами. */
+function planFields(d) {
+  const ds = arr(d.diameters).map(dKey).filter(Boolean);
+  const pb = planByD(d), tot = planOf(d);
+  const ms = methodsOf(d.methods).map(m => MKEY[m]).filter(Boolean);
+  const keys = MKEYS.filter(k => ms.includes(k) || Object.values(pb).some(x => x[k]) || (!ds.length && tot[k]));
+  const show = keys.length ? keys : MKEYS;
+  const hint = `<small class="mute">Стики — RT, VT-W, UT-W; дм² — VT-S, UT-S, PT; точки — UTT, HB. Працівник бачить «виконано/заплановано».</small>`;
+  if (!ds.length) return `<fieldset class="f"><legend>Плановий обсяг за методами</legend><div class="grid4">${MKEYS.map(k => { const v = d['pl_' + k] !== undefined ? d['pl_' + k] : tot[k]; return fNum(`${MSHORT[k]} <small>${MU(k)}</small>`, 'pl_' + k, v); }).join('')}</div>
+    <small class="mute">Виберіть діаметри вище, щоб розписати план по кожному діаметру окремо.</small> ${hint}</fieldset>`;
+  // один діаметр і старий план без розбивки — підставити загальний план у цей діаметр
+  const legacy = ds.length === 1 && !Object.keys(pb).length ? tot : null;
+  const oldTot = !legacy && !Object.keys(pb).length && Object.keys(tot).length ? `<p class="small warn">Зараз план задано загалом: ${MKEYS.filter(k => tot[k]).map(k => MSHORT[k] + ' ' + fmtN(tot[k]) + ' ' + MU(k)).join(' · ')} — розпишіть його по діаметрах — або залиште поля порожніми, і загальний план збережеться.</p>` : '';
+  return `<fieldset class="f planbyd"><legend>Плановий обсяг по діаметрах</legend>${oldTot}
+    ${ds.map(dd => `<div class="pdrow"><b class="pdd">Ø ${esc(dd)}</b><div class="grid4">${show.map(k => { const f = 'pd_' + dd.replace('.', '_') + '_' + k; const v = d[f] !== undefined ? d[f] : (pb[dd] || legacy || {})[k]; return fNum(`${MSHORT[k]} <small>${MU(k)}</small>`, f, v); }).join('')}</div></div>`).join('')}
+    <p class="small pdtot" data-pdtot></p>
+    <small class="mute">Показано методи, вибрані в «Методи контролю» (після зміни методів збережіть і відкрийте завдання знову, щоб зʼявились нові поля). Разом за методами рахується автоматично.</small> ${hint}</fieldset>`;
+}
+function updPdTot(f) {
+  const el = f && f.querySelector('[data-pdtot]'); if (!el) return;
+  const t = {}; f.querySelectorAll('input[name^="pd_"]').forEach(i => { const k = i.name.split('_').pop(); if (num(i.value)) t[k] = (t[k] || 0) + num(i.value); });
+  el.innerHTML = Object.keys(t).length ? '<b>Разом:</b> ' + MKEYS.filter(k => t[k]).map(k => MSHORT[k] + ' ' + fmtN(t[k]) + ' ' + MU(k)).join(' · ') : '';
+}
+document.addEventListener('input', e => { if (e.target.name && /^pd_/.test(e.target.name)) updPdTot(e.target.form); });
 /** Діаметри обʼєкта: з картки обʼєкта і з попередніх завдань на ньому. */
 function objDiams(oid) {
   const o = get('Обʼєкти', oid); if (!o) return [];
@@ -319,7 +349,13 @@ FORMS.task = async (d, id) => {
     const add = d.diameters.filter(x => !have.includes(x));
     if (add.length) await save('Обʼєкти', { ...ob0, diameter: [...have, ...add].sort((a, b) => num(b) - num(a)).join(', ') });
   }
+  const hadTot = MKEYS.some(k => d['pl_' + k] !== undefined);
   const pv = {}; MKEYS.forEach(k => { if (num(d['pl_' + k])) pv[k] = num(d['pl_' + k]); delete d['pl_' + k]; });
+  // план по діаметрах (поля pd_<діаметр>_<метод>) → planVol.byD, загальний план = сума
+  const byD = {};
+  Object.keys(d).forEach(f => { const m = f.match(/^pd_(.+)_([a-z]+)$/); if (!m) return; const dd = m[1].replace('_', '.'); if (num(d[f]) && d.diameters.map(dKey).includes(dKey(dd))) (byD[dKey(dd)] = byD[dKey(dd)] || {})[m[2]] = num(d[f]); delete d[f]; });
+  if (Object.keys(byD).length) { MKEYS.forEach(k => { delete pv[k]; const s2 = Object.values(byD).reduce((a, x) => a + num(x[k]), 0); if (s2) pv[k] = s2; }); pv.byD = byD; }
+  else if (!hadTot && id !== 'new') Object.assign(pv, planOf(get('Завдання', id))); // план по діаметрах не заповнено — залишити попередній загальний план
   d.planVol = JSON.stringify(pv);
   // відповідальний від замовника і населений пункт — у завданні (поле volumePlan, JSON)
   if (!tripOnly && (d.contact !== undefined || d.settlement !== undefined)) {

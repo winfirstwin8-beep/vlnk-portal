@@ -1,12 +1,13 @@
 /* Портал ВЛНК — ядро: утиліти, локальна база (IndexedDB), синхронізація, розрахунки */
 'use strict';
 
-const VER = '1.9.14';
+const VER = '1.9.15';
 /** Мінімальна версія серверного коду (Code.gs), з якою працює цей застосунок. */
 const NEED_API = '1.9.0';
 const CORP_RE = /@([a-z0-9-]+\.)*tsoua\.com$/i; // корпоративні адреси
 /** Що нового — показується один раз після оновлення (коротко, для працівників). */
 const CHANGES = {
+  '1.9.15': ['Завдання: плановий обсяг робіт — окремо по кожному діаметру; у картці обʼєкта «Виконано/план» показано по кожному діаметру (Ø530: RT 40/60 ст. …) і разом'],
   '1.9.14': ['Планування / завдання: діаметри труб — вибір позначками з діаметрів обʼєкта (з картки і попередніх завдань) і кнопка «＋ Додати» для інших діаметрів; нові діаметри можна зберегти в картці обʼєкта'],
   '1.9.13': ['Планування: виїзд бригади у відрядження без назви обʼєкта — кнопка «✈ Відрядження без обʼєкта» або «✈ без обʼєкта» в полі «Обʼєкт»; вказується мета / місце відрядження і населений пункт', 'Склад бригад: працівники, які вже розподілені до інших бригад цього місяця, виділені світло-жовтим'],
   '1.9.12': ['Завдання: кнопки в картці обʼєкта різних кольорів — «Надати звіт» зелена, «Табеля для замовника» синя, «Списання ПММ» помаранчева, «Списання матеріалів» фіолетова; сформовані — світлі з кольоровою рамкою'],
@@ -117,6 +118,15 @@ const mHead = m => m + ', ' + MU(MKEY[m]);                  // заголово�
 /** Коротке зведення обсягу: «RT 12 ст. · VT-S 3 дм²». */
 const planOf = t => { const p = obj(t && t.planVol); const o = {}; MKEYS.forEach(k => { if (num(p[k])) o[k] = num(p[k]); }); return o; };
 // «виконано/заплановано» за методами: ключі — методи завдання, план або факт
+/** План по діаметрах: { '530': { rt: 10, vt: 10 }, … } (поле planVol.byD). */
+const dKey = d => String(num(d) || '').replace(/\.0+$/, '');
+const planByD = t => { const p = obj(t && t.planVol); const b = p && typeof p.byD === 'object' && p.byD ? p.byD : {}; const o = {}; Object.entries(b).forEach(([d, v]) => { const r = {}; MKEYS.forEach(k => { if (num(v && v[k])) r[k] = num(v[k]); }); if (Object.keys(r).length) o[dKey(d)] = r; }); return o; };
+/** Факт по діаметрах за звітами завдання. */
+function factByD(t) {
+  const o = {};
+  all('Звіти').filter(r => r.taskId === t.id && !isSummary(r)).forEach(r => volRows(r).forEach(v => { const d = dKey(v.d) || '—'; const x = o[d] || (o[d] = {}); MKEYS.forEach(k => { if (num(v[k])) x[k] = (x[k] || 0) + num(v[k]); }); }));
+  return o;
+}
 const donePlanKeys = (fact, plan, methods) => MKEYS.filter(k => plan[k] || num(fact[k]) || methodsOf(methods || []).some(m => MKEY[m] === k));
 const donePlanText = (fact, plan, methods) => donePlanKeys(fact, plan, methods).map(k => MSHORT[k] + ' ' + fmtN(num(fact[k])) + '/' + (plan[k] ? fmtN(plan[k]) : '—') + ' ' + MU(k)).join(' · ');
 const volText = q => MKEYS.filter(k => num(q[k])).map(k => MSHORT[k] + ' ' + fmtN(num(q[k])) + ' ' + MU(k)).join(' · ');
@@ -457,7 +467,7 @@ function notifFmt(k, v) {
   if (k === 'objectId') { const o = get('Обʼєкти', v); return o ? o.short || o.name : String(v); }
   if (k === 'methods' || k === 'diameters') return arr(v).join(', ') || '—';
   if (k === 'volumePlan') { const x = taskSite({ volumePlan: v }); return x ? [x.contact, x.settlement && '📍 ' + x.settlement].filter(Boolean).join(', ') || '—' : '—'; }
-  if (k === 'planVol') { try { const o = typeof v === 'string' ? JSON.parse(v || '{}') : v; return Object.entries(o || {}).filter(([, x]) => x).map(([a, x]) => a.toUpperCase() + ' ' + x).join(', ') || '—'; } catch (e) { return String(v); } }
+  if (k === 'planVol') { try { const o = typeof v === 'string' ? JSON.parse(v || '{}') : v; const b = planByD({ planVol: o }); if (Object.keys(b).length) return Object.entries(b).map(([d, x]) => 'Ø' + d + ': ' + Object.entries(x).map(([a, y]) => a.toUpperCase() + ' ' + y).join(', ')).join('; '); return Object.entries(o || {}).filter(([a, x]) => x && typeof x !== 'object').map(([a, x]) => a.toUpperCase() + ' ' + x).join(', ') || '—'; } catch (e) { return String(v); } }
   return String(v);
 }
 const notifSame = (a, b) => JSON.stringify(a === undefined || a === null ? '' : a) === JSON.stringify(b === undefined || b === null ? '' : b);
