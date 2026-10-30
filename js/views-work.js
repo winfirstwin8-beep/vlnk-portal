@@ -95,14 +95,15 @@ function taskItem(t) {
   const href = isLead() ? '#/taskform/' + t.id : '#/tobj/' + t.id;
   const plan = planOf(t);
   return `<div class="item"><a class="item-link" href="${href}">
-    <div class="row between"><b>${esc(o ? o.short : '—')}</b>${badge(esc(status), st)}</div>
-    ${t.dateFrom ? `<div class="tdrow"><div class="tdmain">${taskDates(t)}${repBtn(t)}</div>${isLead() ? objDocsBtn(t) + pmmBtn(t) + matBtn(t) : ''}</div>` : taskDates(t)}
+    <div class="row between"><b>${esc(o ? o.short : taskLabel(t))}</b>${badge(esc(status), st)}</div>
+    ${t.dateFrom ? `<div class="tdrow"><div class="tdmain">${taskDates(t)}${o ? repBtn(t) : ''}</div>${isLead() && o ? objDocsBtn(t) + pmmBtn(t) + matBtn(t) : ''}</div>` : taskDates(t)}
+    ${!o && taskExtra(t).settlement ? `<span class="small">📍 ${esc(taskExtra(t).settlement)}</span>` : ''}
     ${objMeta(o)}
     <span class="small mute">${esc(t.workType || '')}${t.requestNo ? (t.workType ? ' · ' : '') + 'заявка № ' + esc(t.requestNo) : ''}${t.orderNo ? ' · наказ № ' + esc(t.orderNo) : ''}</span>
-    <span class="small">${methodsOf(t.methods).map(x => badge(esc(x))).join(' ')} ${t.diameters ? 'Ø ' + esc(arr(t.diameters).join(', ')) : ''}</span>
-    <div class="tivol">${fact.n || Object.keys(plan).length ? `<span class="small mute">Виконано/план: ${donePlanText(fact, plan, t.methods)}${fact.n ? ' · ' + fact.n + ' зв.' : ''}</span>` : '<span></span>'}${!isVisitor() ? matBtnHtml(t) : ''}</div>
-    ${(() => { const np = taskProtoCount(t); return np || String(t.dateFrom || '') > today() || t.status === 'перенесено' ? '' : `<div class="noproto">⚠ Немає протоколів за період ${uaDate(t.dateFrom)}${t.dateTo && t.dateTo !== t.dateFrom ? ' – ' + uaDate(t.dateTo) : ''}</div>`; })()}
-    <div class="tiprot">${(n => n ? `<span role="button" tabindex="0" class="btn small ghost getproto" data-act="protopick" data-id="${esc(t.id)}" title="Вибрати й завантажити протокол НК по цьому обʼєкту">📥 Отримати<span class="hsm"> протокол</span> (${n})</span>` : '<span class="getproto"></span>')(objProtos(t.objectId).length)}${!isVisitor() ? `<span role="button" tabindex="0" class="btn small btn-pastel" data-act="protoreg" data-id="${esc(t.id)}">⬆ Завантажити протокол</span>` : ''}</div>
+    <span class="small">${methodsOf(t.methods).map(x => badge(esc(x))).join(' ')} ${arr(t.diameters).length ? 'Ø ' + esc(arr(t.diameters).join(', ')) : ''}</span>
+    <div class="tivol">${fact.n || Object.keys(plan).length ? `<span class="small mute">Виконано/план: ${donePlanText(fact, plan, t.methods)}${fact.n ? ' · ' + fact.n + ' зв.' : ''}</span>` : '<span></span>'}${!isVisitor() && o ? matBtnHtml(t) : ''}</div>
+    ${!o ? '' : (() => { const np = taskProtoCount(t); return np || String(t.dateFrom || '') > today() || t.status === 'перенесено' ? '' : `<div class="noproto">⚠ Немає протоколів за період ${uaDate(t.dateFrom)}${t.dateTo && t.dateTo !== t.dateFrom ? ' – ' + uaDate(t.dateTo) : ''}</div>`; })()}
+    ${o ? `<div class="tiprot">${(n => n ? `<span role="button" tabindex="0" class="btn small ghost getproto" data-act="protopick" data-id="${esc(t.id)}" title="Вибрати й завантажити протокол НК по цьому обʼєкту">📥 Отримати<span class="hsm"> протокол</span> (${n})</span>` : '<span class="getproto"></span>')(objProtos(t.objectId).length)}${!isVisitor() ? `<span role="button" tabindex="0" class="btn small btn-pastel" data-act="protoreg" data-id="${esc(t.id)}">⬆ Завантажити протокол</span>` : ''}</div>` : ''}
   </a></div>`;
 }
 
@@ -199,17 +200,17 @@ function taskObjCard(oid, t) {
       ['ТОРО-замовлення', esc(o.soOrder)], ['ТОРО-підзамовлення', esc(o.soSubOrder)], ['№ ICP', esc(o.icp)]])}
     ${t ? `<div class="crew">${taskCrewHtml(t)}</div>${dayPlanTable(t, { compact: true })}` : ''}</div>`;
 }
-ROUTES.taskform = (id = 'new', brig) => {
+ROUTES.taskform = (id = 'new', brig, kind) => {
   if (!isLead()) return denied();
   const key = 'task:' + id;
   const src = id !== 'new' ? get('Завдання', id) : null;
   if (id !== 'new' && !src) return notFound();
   const m = UI.tmonth || ym(today());
-  const d = UI.draft[key] || src || { month: m, brigade: brig || '1', dateFrom: m + '-01', dateTo: monthEnd(m), status: 'заплановано', methods: ['RT', 'VT-W'] };
+  const d = UI.draft[key] || (src ? { ...src, objectId: src.objectId || NOOBJ } : { month: m, brigade: brig || '1', dateFrom: m + '-01', dateTo: monthEnd(m), status: 'заплановано', methods: kind === 'trip' ? [] : ['RT', 'VT-W'], objectId: kind === 'trip' ? NOOBJ : '' });
   const body =
     `<div class="grid2">${fInp('Місяць', 'month', d.month, { type: 'month', req: true })}
      ${fSel('Бригада', 'brigade', BRIGADES.map(n => [n, brName(n)]), d.brigade, { req: true })}</div>
-     ${fSel('Обʼєкт', 'objectId', objOpts(), d.objectId, { req: true, none: '— оберіть обʼєкт —', re: true })}
+     ${fSel('Обʼєкт', 'objectId', [[NOOBJ, '✈ Відрядження без обʼєкта'], ...objOpts()], d.objectId, { req: true, none: '— оберіть обʼєкт —', re: true })}
      ${taskSiteFields(d)}
      <div class="grid2">${fInp('Початок', 'dateFrom', d.dateFrom, { type: 'date', req: true })}${fInp('Закінчення', 'dateTo', d.dateTo, { type: 'date', req: true })}</div>
      ${fSel('Вид робіт', 'workType', WORK_TYPES, d.workType, { none: '—' })}
@@ -229,6 +230,15 @@ ONCHANGE.task = (d, field) => {
 };
 /** Відповідальний від замовника (пошук за списком) і населений пункт, найближчий до місця робіт (довільно) — зберігаються в картці обʼєкта. */
 function taskSiteFields(d) {
+  if (d.objectId === NOOBJ) {
+    const x = taskExtra(d);
+    const trip = d.trip !== undefined ? d.trip : x.trip || '';
+    const settlement = d.settlement !== undefined ? d.settlement : x.settlement || '';
+    return `<fieldset class="f sitefs"><legend>✈ Відрядження без обʼєкта</legend>
+      ${fInp('Мета / місце відрядження', 'trip', trip, { ph: 'напр. навчання в УНТЦ, атестація, отримання обладнання, резерв', hint: 'показується замість назви обʼєкта' })}
+      ${fInp('Населений пункт', 'settlement', settlement, { ph: 'напр. м. Київ' })}
+      <small class="mute">Обʼєкт можна буде вказати пізніше — відкрийте завдання й оберіть його в полі «Обʼєкт».</small></fieldset>`;
+  }
   const o = get('Обʼєкти', d.objectId);
   if (!o) return '';
   const def = taskSite(d) || prevSite(o.id, d.id);
@@ -259,13 +269,22 @@ document.addEventListener('pointerdown', e => {
   if (!(e.target.closest && e.target.closest('.respf'))) document.querySelectorAll('.respdd').forEach(dd => (dd.hidden = true));
 });
 FORMS.task = async (d, id) => {
-  if (!need(d, [['month', 'місяць'], ['brigade', 'бригада'], ['objectId', 'обʼєкт'], ['dateFrom', 'початок'], ['dateTo', 'закінчення']])) return;
+  if (!need(d, [['month', 'місяць'], ['brigade', 'бригада'], ['objectId', 'обʼєкт або «відрядження без обʼєкта»'], ['dateFrom', 'початок'], ['dateTo', 'закінчення']])) return;
+  const tripOnly = d.objectId === NOOBJ;
+  if (tripOnly) {
+    d.objectId = '';
+    const prevX = taskExtra(id !== 'new' ? get('Завдання', id) : null);
+    const trip = String(d.trip !== undefined ? d.trip : prevX.trip || '').trim(), settlement = String(d.settlement !== undefined ? d.settlement : prevX.settlement || '').trim();
+    d.volumePlan = JSON.stringify({ trip: trip || 'Відрядження', settlement });
+    delete d.trip; delete d.settlement; delete d.contact;
+  }
+  delete d.trip;
   if (d.dateTo < d.dateFrom) return toast('Дата закінчення раніша за початок');
   d.diameters = arr(d.diameters);
   const pv = {}; MKEYS.forEach(k => { if (num(d['pl_' + k])) pv[k] = num(d['pl_' + k]); delete d['pl_' + k]; });
   d.planVol = JSON.stringify(pv);
   // відповідальний від замовника і населений пункт — у завданні (поле volumePlan, JSON)
-  if (d.contact !== undefined || d.settlement !== undefined) {
+  if (!tripOnly && (d.contact !== undefined || d.settlement !== undefined)) {
     const contact = String(d.contact || '').trim(), settlement = String(d.settlement || '').trim();
     const rp = objResp({ contact });
     const prev = taskSite(id !== 'new' ? get('Завдання', id) : null) || {};
@@ -295,6 +314,7 @@ ROUTES.brigades = () => {
   if (dup.length) h += `<div class="note warn">Працівник у кількох бригадах: ${dup.map(([id, v]) => esc(shortName(personName(id))) + ' (' + v.join(', ') + ')').join('; ')}</div>`;
   const free = staff().filter(p => p.role !== 'відвідувач' && !used[p.id]);
   if (free.length) h += `<p class="small mute">Не розподілені: ${free.map(p => esc(shortName(p.pib))).join(', ')}</p>`;
+  if (lead && Object.keys(used).length) h += `<p class="small"><span class="chiplegend busy">прізвище</span> — уже розподілений до іншої бригади цього місяця</p>`;
   const vac = staff().filter(p => p.role !== 'відвідувач').map(p => ({ p, n: vacDaysIn(p.id, m + '-01', monthEnd(m)).size })).filter(x => x.n);
   if (vac.length) h += `<div class="note">🌴 Відпустки в ${monthName(m)}: ${vac.map(x => { const r = all('Відпустки').filter(v => v.personId === x.p.id).map(vacRange).filter(([a, b]) => a && a <= monthEnd(m) && b >= m + '-01').map(([a, b]) => uaDate(a).slice(0, 5) + '–' + uaDate(b).slice(0, 5)).join(', '); return esc(shortName(x.p.pib)) + ' ' + r; }).join('; ')}</div>`;
   if (lead && !all('Бригади').some(b => b.month === m)) h += `<button class="btn ghost wide" data-act="copybrig">Скопіювати склад з ${monthName(addMonths(m, -1))}</button>`;
@@ -310,7 +330,7 @@ ROUTES.brigades = () => {
     const drivers = arr(d.members).filter(id => { const p = get('Персонал', id); return p && truthy(p.isDriver) && (!d.carId || !arr(p.carAccess).length || arr(p.carAccess).includes(d.carId)); });
     const warn = d.carId && !drivers.length ? `<p class="small warn">У складі немає водія з допуском до цього авто</p>` : '';
     h += card(brName(n), `<form class="form" data-form="brig" data-id="${m}:${n}">
-      ${fMulti('Склад', 'members', staff().filter(p => p.role !== 'відвідувач').map(p => [p.id, shortName(p.pib) + (truthy(p.isDriver) ? ' 🚐' : '') + (used[p.id] && !used[p.id].includes(n) ? ' (Б' + used[p.id].join(',') + ')' : '') + (vacDaysIn(p.id, m + '-01', monthEnd(m)).size ? ' 🌴' + vacDaysIn(p.id, m + '-01', monthEnd(m)).size : '')]), d.members)}
+      ${fMulti('Склад', 'members', staff().filter(p => p.role !== 'відвідувач').map(p => [p.id, shortName(p.pib) + (truthy(p.isDriver) ? ' 🚐' : '') + (used[p.id] && used[p.id].some(x => String(x) !== String(n)) ? ' (Б' + used[p.id].filter(x => String(x) !== String(n)).join(',') + ')' : '') + (vacDaysIn(p.id, m + '-01', monthEnd(m)).size ? ' 🌴' + vacDaysIn(p.id, m + '-01', monthEnd(m)).size : ''), used[p.id] && used[p.id].some(x => String(x) !== String(n)) ? 'busy' : '']), d.members)}
       <div class="grid2">${fSel('Старший бригади', 'leaderId', arr(d.members).map(id => [id, shortName(personName(id))]), d.leaderId, { none: '—' })}
       ${fSel('Автомобіль', 'carId', carOpts(), d.carId, { none: 'без авто' })}</div>${warn}
       ${fInp('Примітка', 'note', d.note, { ph: n === 5 ? 'форс-мажор / резерв' : '' })}
@@ -365,7 +385,7 @@ ROUTES.plan = () => {
   const pb = UI.pbrig || 'all';
   const inP = n => pb === 'all' || String(pb) === String(n);
   h = seg('pbrig', [['all', 'Усі'], ...BRIGADES.map(n => [n, n === 5 ? '5 рез.' : 'Б' + n])], pb).replace('class="seg"', 'class="seg wrap"') + h;
-  if (lead) h += `<div class="row gap">${`<button class="btn primary" data-act="newshift" data-n="">+ Нова вахта</button>`}${`<button class="btn ghost" data-act="copybrig">Як у попередньому місяці</button>`}</div>`;
+  if (lead) h += `<div class="row gap">${`<button class="btn primary" data-act="newshift" data-n="">+ Нова вахта</button><button class="btn ghost" data-act="newshift" data-n="" data-kind="trip">✈ Відрядження без обʼєкта</button>`}${`<button class="btn ghost" data-act="copybrig">Як у попередньому місяці</button>`}</div>`;
   // ── бригади на місяць
   const used = {};
   BRIGADES.forEach(n => brigadeMembers(brigadeOf(m, n)).forEach(id => (used[id] = used[id] || []).push(n)));
@@ -398,7 +418,7 @@ ROUTES.plan = () => {
     tasks.filter(x => String(x.brigade) === String(n)).forEach(x => {
       const a = x.dateFrom < m + '-01' ? m + '-01' : x.dateFrom, z = (x.dateTo || x.dateFrom) > monthEnd(m) ? monthEnd(m) : (x.dateTo || x.dateFrom);
       const done = (x.dateTo || x.dateFrom) < t || taskStatus(x) === 'виконано';
-      g += `<a class="gbar${done ? ' done' : ''}" style="grid-row:${row};grid-column:${col(a)}/${col(z) + 1}" href="${lead ? '#/taskform/' : '#/tobj/'}${esc(x.id)}" title="${esc(objShort(x.objectId))}: ${uaDate(x.dateFrom)}–${uaDate(x.dateTo)}">${esc(objShort(x.objectId))}</a>`;
+      g += `<a class="gbar${done ? ' done' : ''}" style="grid-row:${row};grid-column:${col(a)}/${col(z) + 1}" href="${lead ? '#/taskform/' : '#/tobj/'}${esc(x.id)}" title="${esc(taskLabel(x))}: ${uaDate(x.dateFrom)}–${uaDate(x.dateTo)}">${esc(taskLabel(x))}</a>`;
     });
   });
   g += '</div>';
@@ -407,7 +427,7 @@ ROUTES.plan = () => {
   h += card('Вахти за ' + monthName(m), BRIGADES.filter(inP).map(n => {
     const shs = brigShifts(m, n);
     if (!shs.length && !lead) return '';
-    return `<div class="row between brhead"><div>${brigTitle(n, m)}</div>${lead ? `<button class="btn small ghost" data-act="newshift" data-n="${n}">+ вахта</button>` : ''}</div>` +
+    return `<div class="row between brhead"><div>${brigTitle(n, m)}</div>${lead ? `<span class="row gap"><button class="btn small ghost" data-act="newshift" data-n="${n}">+ вахта</button><button class="btn small ghost" data-act="newshift" data-n="${n}" data-kind="trip" title="Відрядження без обʼєкта">✈ без обʼєкта</button></span>` : ''}</div>` +
       (shs.length ? shs.map(s => shiftHead(s, lead) + s.tasks.map(taskItem).join('')).join('') : '<p class="small mute">вахт немає</p>');
   }).join(''));
   return page('Планування', h, '#/menu');
@@ -1083,7 +1103,7 @@ FORMS.shiftdocs = async (d, id) => {
   delete UI.draft['shiftdocs']; UI.dirty = false;
   savedMsg('СЗ і відомість сформовано й надіслано на ' + email); go('#/plan');
 };
-ACTS.newshift = d => { UI.tmonth = UI.bmonth || ym(today()); go('#/taskform/new' + (d.n ? '/' + d.n : '')); };
+ACTS.newshift = d => { UI.tmonth = UI.bmonth || ym(today()); go('#/taskform/new/' + (d.n || '') + (d.kind ? '/' + d.kind : '')); };
 
 // ═════════ ЩОДЕННІ ЗВІТИ ═════════
 ROUTES.reports = () => {
@@ -1338,7 +1358,7 @@ ROUTES.reportform = (id = 'new') => {
   let body =
     `<div class="grid2">${fInp('Дата', 'date', d.date, { type: 'date', req: true, re: true })}
      ${fSel('Бригада', 'brigade', BRIGADES.map(n => [n, brName(n)]), d.brigade, { req: true, re: true })}</div>
-     ${fSel('Завдання', 'taskId', tks.map(t => [t.id, objShort(t.objectId) + ' (' + uaDate(t.dateFrom) + '–' + uaDate(t.dateTo) + ')']), d.taskId, { none: tks.length ? '— без привʼязки —' : 'на цю дату завдань немає', re: true })}
+     ${fSel('Завдання', 'taskId', tks.map(t => [t.id, taskLabel(t) + ' (' + uaDate(t.dateFrom) + '–' + uaDate(t.dateTo) + ')']), d.taskId, { none: tks.length ? '— без привʼязки —' : 'на цю дату завдань немає', re: true })}
      ${fSel('Обʼєкт', 'objectId', objectsSorted().map(o => [o.id, o.name || o.short]), d.objectId, { req: true, none: '— оберіть обʼєкт —', re: true })}
      ${d.objectId && get('Обʼєкти', d.objectId) ? `<p class="small objfull">${esc((get('Обʼєкти', d.objectId) || {}).name || objShort(d.objectId))}</p>` : ''}
      ${fChk('Переїзд між обʼєктами (виконання робіт відсутнє)', 'travel', travel, { re: true })}

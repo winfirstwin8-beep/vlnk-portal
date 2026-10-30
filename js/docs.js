@@ -218,7 +218,7 @@ DOCS.sz = p => {
   const orders = [...new Set(tasks.map(t => t.orderNo).filter(Boolean))];
   r = line(ws, r, `Прошу направити у відрядження працівників ${lab()} (${brName(p.brigade)}) на період ${periodText(p.from, p.to)} (${days} календ. дн.) для виконання робіт з неруйнівного контролю зварних зʼєднань${methods.length ? ' (' + methods.join(', ') + ')' : ''} на обʼєктах:`, C, { align: 'left', h: 62 });
   r = grid(ws, r, ['№', 'Обʼєкт', 'ЛВУМГ / населений пункт', '№ заявки НК', 'Період', 'Вид робіт'],
-    tasks.length ? tasks.map((t, i) => { const o = taskObj(t) || {}; return [i + 1, o.short || '', [o.lvumg, o.settlement].filter(Boolean).join(', '), t.requestNo || '', uaDate(t.dateFrom) + '–' + uaDate(t.dateTo), t.workType || '']; }) : [['', 'завдань на період не знайдено', '', '', '', '']], { left: [1, 2] });
+    tasks.length ? tasks.map((t, i) => { const o = taskObj(t) || taskExtra(t); return [i + 1, o.short || taskLabel(t).replace(/^✈ /, ''), [o.lvumg, o.settlement].filter(Boolean).join(', '), t.requestNo || '', uaDate(t.dateFrom) + '–' + uaDate(t.dateTo), t.workType || '']; }) : [['', 'завдань на період не знайдено', '', '', '', '']], { left: [1, 2] });
   r++;
   r = line(ws, r, 'Склад бригади:', C, { align: 'left', bold: true });
   r = grid(ws, r, ['№', 'ПІБ', 'Посада', 'Примітка', '', ''], mem.map((id, i) => { const pp = get('Персонал', id) || {}; return [i + 1, pp.pib || '', pp.posada || '', [id === b.leaderId ? 'старший бригади' : '', truthy(pp.isDriver) ? 'водій' : ''].filter(Boolean).join(', '), '', '']; }), { left: [1, 2] });
@@ -234,7 +234,7 @@ DOCS.sz = p => {
   q = line(ws2, q, 'ВІДОМІСТЬ', C2, { bold: true, size: 14 });
   q = line(ws2, q, `на проживання працівників ${lab()} (${brName(p.brigade)}) ${periodText(p.from, p.to)}`, C2, { h: 34 });
   q++;
-  const place = [...new Set(tasks.map(t => (taskObj(t) || {}).settlement).filter(Boolean))].join(', ');
+  const place = [...new Set(tasks.map(t => (taskObj(t) || taskExtra(t)).settlement).filter(Boolean))].join(', ');
   const nights = Math.max(0, days - 1);
   q = grid(ws2, q, ['№', 'ПІБ', 'Посада', 'Населений пункт', 'Дата заїзду', 'Дата виїзду', 'К-сть діб', 'Підпис'],
     mem.map((id, i) => { const pp = get('Персонал', id) || {}; return [i + 1, pp.pib || '', pp.posada || '', place, uaDate(p.from), uaDate(p.to), nights, '']; }).concat([['', 'Разом', '', '', '', '', nights * mem.length, '']]), { left: [1, 2, 3], boldLast: true });

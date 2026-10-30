@@ -1,12 +1,13 @@
 /* Портал ВЛНК — ядро: утиліти, локальна база (IndexedDB), синхронізація, розрахунки */
 'use strict';
 
-const VER = '1.9.12';
+const VER = '1.9.13';
 /** Мінімальна версія серверного коду (Code.gs), з якою працює цей застосунок. */
 const NEED_API = '1.9.0';
 const CORP_RE = /@([a-z0-9-]+\.)*tsoua\.com$/i; // корпоративні адреси
 /** Що нового — показується один раз після оновлення (коротко, для працівників). */
 const CHANGES = {
+  '1.9.13': ['Планування: виїзд бригади у відрядження без назви обʼєкта — кнопка «✈ Відрядження без обʼєкта» або «✈ без обʼєкта» в полі «Обʼєкт»; вказується мета / місце відрядження і населений пункт', 'Склад бригад: працівники, які вже розподілені до інших бригад цього місяця, виділені світло-жовтим'],
   '1.9.12': ['Завдання: кнопки в картці обʼєкта різних кольорів — «Надати звіт» зелена, «Табеля для замовника» синя, «Списання ПММ» помаранчева, «Списання матеріалів» фіолетова; сформовані — світлі з кольоровою рамкою'],
   '1.9.11': ['Завдання: праворуч від дат початку і кінця — кнопка «📝 Надати звіт» (поки завдання триває): відкриває щоденний звіт, заповнений обʼєктом, бригадою, складом і діаметрами цього завдання; якщо звіт за сьогодні вже подано — «✓ Звіт подано» відкриває його для змін'],
   '1.9.10': ['Нормативні документи та інструкції: можна завантажувати файли Excel — .xls, .xlsx і .xlsm (з макросами)'],
@@ -202,6 +203,13 @@ function shiftDoc(s) {
   return ov ? { doc: ov, exact: false } : null;
 }
 /** Телефон відповідального: з картки обʼєкта, інакше — з картки відповідального від замовника. */
+// ───────── відрядження бригади без обʼєкта ─────────
+const NOOBJ = '__trip';
+/** Додаткові дані завдання з поля volumePlan (JSON): «на місці робіт» і назва відрядження без обʼєкта. */
+function taskExtra(t) { if (!t || !t.volumePlan) return {}; try { const s = typeof t.volumePlan === 'string' ? JSON.parse(t.volumePlan) : t.volumePlan; return s && typeof s === 'object' && !Array.isArray(s) ? s : {}; } catch (e) { return {}; } }
+const isTripOnly = t => !!t && !t.objectId;
+/** Назва завдання: коротка назва обʼєкта або «✈ мета відрядження». */
+const taskLabel = t => !t ? '—' : t.objectId ? objShort(t.objectId) : '✈ ' + (String(taskExtra(t).trip || '').trim() || 'Відрядження без обʼєкта');
 // ───────── відповідальний від замовника і населений пункт — на рівні завдання ─────────
 // Зберігаються в полі завдання volumePlan (JSON), тож серверну частину змінювати не потрібно.
 const SITE_KEYS = ['contact', 'contactPos', 'contactPhone', 'contactTabNo', 'settlement'];
@@ -478,7 +486,7 @@ function notifCheck(t, old, r) {
       if (p.tasks === 'off') return;
       if (p.tasks === 'mine' && !notifMineTask(r) && !(old && notifMineTask(old))) return;
       const o = get('Обʼєкти', r.objectId) || {};
-      const head = (o.short || 'Обʼєкт') + ' · ' + brName(r.brigade);
+      const head = (r.objectId ? o.short || 'Обʼєкт' : taskLabel(r)) + ' · ' + brName(r.brigade);
       const per = uaDate(r.dateFrom) + (r.dateTo && r.dateTo !== r.dateFrom ? ' – ' + uaDate(r.dateTo) : '');
       if (!old || truthy(old.deleted)) { if (!truthy(r.deleted)) add({ kind: 'task', title: '🆕 Нове завдання: ' + head, body: per + (r.workType ? ' · ' + r.workType : '') + (arr(r.methods).length ? ' · ' + arr(r.methods).join(', ') : ''), href: r.objectId ? '#/object/' + r.objectId : '#/tasks' }); return; }
       if (truthy(r.deleted)) { add({ kind: 'task', title: '🗑 Завдання видалено: ' + head, body: per, href: '#/tasks' }); return; }

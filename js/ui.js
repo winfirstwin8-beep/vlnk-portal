@@ -110,7 +110,7 @@ function fChk(label, name, checked, o = {}) {
 }
 function fMulti(label, name, options, values, o = {}) {
   const vs = arr(values).map(String);
-  return `<fieldset class="f"><legend>${label}</legend><div class="chips">${options.map(x => { const [v, t] = Array.isArray(x) ? x : [x, x]; return `<label class="chip"><input type="checkbox" name="${name}[]" value="${esc(v)}" ${vs.includes(String(v)) ? 'checked' : ''} ${o.re ? 'data-re' : ''}><span>${esc(t)}</span></label>`; }).join('')}</div></fieldset>`;
+  return `<fieldset class="f"><legend>${label}</legend><div class="chips">${options.map(x => { const [v, t, cls] = Array.isArray(x) ? x : [x, x]; return `<label class="chip${cls ? ' ' + cls : ''}"${cls === 'busy' ? ' title="Уже розподілений до іншої бригади"' : ''}><input type="checkbox" name="${name}[]" value="${esc(v)}" ${vs.includes(String(v)) ? 'checked' : ''} ${o.re ? 'data-re' : ''}><span>${esc(t)}</span></label>`; }).join('')}</div></fieldset>`;
 }
 function form(name, id, body, o = {}) {
   return `<form class="form" data-form="${name}" data-id="${esc(id || '')}" novalidate>${body}
