@@ -215,7 +215,7 @@ ROUTES.taskform = (id = 'new', brig, kind) => {
      <div class="grid2">${fInp('Початок', 'dateFrom', d.dateFrom, { type: 'date', req: true })}${fInp('Закінчення', 'dateTo', d.dateTo, { type: 'date', req: true })}</div>
      ${fSel('Вид робіт', 'workType', WORK_TYPES, d.workType, { none: '—' })}
      ${fMulti('Методи контролю', 'methods', METHODS, methodsOf(d.methods))}
-     ${fInp('Діаметри труб', 'diameters', arr(d.diameters).join(', '), { ph: '530, 720', hint: 'через кому' })}
+     ${diamPicker(d)}
      <fieldset class="f"><legend>Плановий обсяг за методами</legend><div class="grid4">${METHODS.map(m => { const k = MKEY[m]; const v = d['pl_' + k] !== undefined ? d['pl_' + k] : planOf(d)[k]; return fNum(`${m} <small>${MU(k)}</small>`, 'pl_' + k, v); }).join('')}</div>
      <small class="mute">Стики — RT, VT-W, UT-W, PT, UTT, HB; дм² — VT-S, UT-S. Працівник бачить «виконано/заплановано».</small></fieldset>
      <div class="grid2">${fInp('№ заявки НК', 'requestNo', d.requestNo)}${fInp('№ наказу на вахту (відрядження)', 'orderNo', d.orderNo, { hint: 'один наказ на виїзд бригади за місяць; можна «№ від дд.мм.рррр»' })}</div>
@@ -223,9 +223,40 @@ ROUTES.taskform = (id = 'new', brig, kind) => {
      ${fArea('Примітка', 'note', d.note)}`;
   return page(id === 'new' ? 'Нове завдання' : 'Завдання', taskObjCard(d.objectId, src && src.objectId === d.objectId ? src : null) + (src ? card('Наказ на відрядження', orderBlock(src)) : '') + form('task', id, body, src ? { del: { t: 'Завдання', id, back: '#/tasks' } } : {}), '#/tasks');
 };
+/** Діаметри обʼєкта: з картки обʼєкта і з попередніх завдань на ньому. */
+function objDiams(oid) {
+  const o = get('Обʼєкти', oid); if (!o) return [];
+  const ds = [...arr(o.diameter), ...all('Завдання').filter(t => t.objectId === oid).flatMap(t => arr(t.diameters))].map(x => String(x).replace(/[^\d.]/g, '')).filter(x => num(x) > 0);
+  return [...new Set(ds)].sort((a, b) => num(b) - num(a));
+}
+/** Вибір діаметрів завдання: діаметри обʼєкта (позначкою), «＋ інший діаметр». */
+function diamPicker(d) {
+  const sel = arr(d.diameters).map(x => String(x).trim()).filter(Boolean);
+  const all0 = [...new Set([...objDiams(d.objectId), ...sel])].sort((a, b) => num(b) - num(a));
+  const std = [...new Set(normsList().map(n => String(n.diameter)))];
+  const known = new Set(objDiams(d.objectId));
+  return `<fieldset class="f diamf"><legend>Діаметри труб, мм</legend>
+    ${all0.length ? `<div class="chips">${all0.map(v => `<label class="chip${known.has(v) ? '' : ' newd'}"${known.has(v) ? '' : ' title="Новий діаметр для цього обʼєкта"'}><input type="checkbox" name="diameters[]" value="${esc(v)}"${sel.includes(v) ? ' checked' : ''}><span>Ø ${esc(v)}</span></label>`).join('')}</div>` : '<p class="small mute">Для обʼєкта ще немає діаметрів — додайте нижче.</p>'}
+    <div class="row gap diamadd"><input type="number" inputmode="numeric" min="10" max="2000" placeholder="інший діаметр, напр. 159" list="diamstd" data-diamnew><button type="button" class="btn small ghost" data-act="adddiam">＋ Додати</button></div>
+    <datalist id="diamstd">${std.map(x => `<option value="${esc(x)}">`).join('')}</datalist>
+    ${d.objectId && d.objectId !== NOOBJ ? fChk('Зберегти нові діаметри в картці обʼєкта', 'diamToObj', d.diamToObj !== undefined ? d.diamToObj : true) : ''}
+    <small class="mute">Позначте діаметри, на яких працюватиме бригада. Можна додати кілька: введіть діаметр і натисніть «＋ Додати» (або Enter).</small></fieldset>`;
+}
+ACTS.adddiam = (dd, el) => {
+  const f = el.closest('form'); const inp = f.querySelector('[data-diamnew]');
+  const v = String(inp.value || '').replace(/[^\d.]/g, '');
+  if (!(num(v) >= 10 && num(v) <= 2000)) { toast('Вкажіть діаметр від 10 до 2000 мм'); inp.focus(); return; }
+  const key = 'task:' + (f.dataset.id || 'new');
+  const d = { ...(UI.draft[key] || {}), ...formData(f) };
+  const cur = arr(d.diameters).map(String);
+  if (!cur.includes(v)) cur.push(v);
+  d.diameters = cur; UI.draft[key] = d; UI.dirty = false; render(); UI.dirty = true;
+  setTimeout(() => { const i2 = $('form[data-form=task] [data-diamnew]'); if (i2) i2.focus(); }, 0);
+};
+document.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.matches && e.target.matches('[data-diamnew]')) { e.preventDefault(); const b = e.target.closest('.diamadd').querySelector('[data-act="adddiam"]'); b && b.click(); } });
 ONCHANGE.task = (d, field) => {
   const o = get('Обʼєкти', d.objectId);
-  if (o && !d.diameters) d.diameters = o.diameter;
+  if (field === 'objectId') d.diameters = o ? objDiams(o.id).slice(0, 1) : [];
   if (field === 'objectId') { const ps = o ? prevSite(o.id, d.id) : {}; d.contact = ps.contact || ''; d.settlement = ps.settlement || ''; }
 };
 /** Відповідальний від замовника (пошук за списком) і населений пункт, найближчий до місця робіт (довільно) — зберігаються в картці обʼєкта. */
@@ -280,7 +311,14 @@ FORMS.task = async (d, id) => {
   }
   delete d.trip;
   if (d.dateTo < d.dateFrom) return toast('Дата закінчення раніша за початок');
-  d.diameters = arr(d.diameters);
+  d.diameters = arr(d.diameters).map(x => String(x).trim()).filter(Boolean).sort((a, b) => num(b) - num(a));
+  const toObj = !!d.diamToObj; delete d.diamToObj;
+  const ob0 = d.objectId && d.objectId !== NOOBJ ? get('Обʼєкти', d.objectId) : null;
+  if (ob0 && toObj) {
+    const have = arr(ob0.diameter).map(x => String(x).replace(/[^\d.]/g, '')).filter(Boolean);
+    const add = d.diameters.filter(x => !have.includes(x));
+    if (add.length) await save('Обʼєкти', { ...ob0, diameter: [...have, ...add].sort((a, b) => num(b) - num(a)).join(', ') });
+  }
   const pv = {}; MKEYS.forEach(k => { if (num(d['pl_' + k])) pv[k] = num(d['pl_' + k]); delete d['pl_' + k]; });
   d.planVol = JSON.stringify(pv);
   // відповідальний від замовника і населений пункт — у завданні (поле volumePlan, JSON)

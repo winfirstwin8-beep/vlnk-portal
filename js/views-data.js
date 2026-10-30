@@ -726,7 +726,7 @@ ROUTES.objform = (id = 'new') => {
      ${fSel('Автомобіль', 'carId', carOpts(), d.carId, { none: 'авто бригади — за завданням' })}
      <div class="grid2">${fInp('Широта N', 'lat', d.lat, { mode: 'decimal' })}${fInp('Довгота E', 'lng', d.lng, { mode: 'decimal' })}</div>
      <div class="grid2">${fInp('СО/ТОРО замовлення', 'soOrder', d.soOrder)}${fInp('СО/ТОРО підзамовлення', 'soSubOrder', d.soSubOrder)}</div>
-     <div class="grid2">${fInp('ICP', 'icp', d.icp)}${fInp('Діаметр, мм', 'diameter', d.diameter)}</div>
+     <div class="grid2">${fInp('ICP', 'icp', d.icp)}${fInp('Діаметри, мм', 'diameter', d.diameter, { ph: '530, 159', hint: 'через кому' })}</div>
      <div class="grid3">${fNum('Довжина, м', 'length', d.length)}${fNum('План 2026, м', 'plan2026', d.plan2026)}${fNum('План 2027, м', 'plan2027', d.plan2027)}</div>
      <div class="grid2">${fInp('Початок 2026', 'start2026', d.start2026, { type: 'date' })}${fInp('Початок 2027', 'start2027', d.start2027, { type: 'date' })}</div>
      <div class="grid3">${fNum('Плівка план, дм²', 'filmPlan', d.filmPlan)}${fNum('Проявник план, л', 'devPlan', d.devPlan)}${fNum('Фіксаж план, л', 'fixPlan', d.fixPlan)}</div>
