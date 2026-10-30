@@ -210,6 +210,7 @@ ROUTES.taskform = (id = 'new', brig, kind) => {
   const body =
     `<div class="grid2">${fInp('Місяць', 'month', d.month, { type: 'month', req: true })}
      ${fSel('Бригада', 'brigade', BRIGADES.map(n => [n, brName(n)]), d.brigade, { req: true })}</div>
+     <div class="objsearch respwrap"><input type="search" data-objq autocomplete="off" placeholder="🔍 Пошук обʼєкта: назва, ЛВУМГ, населений пункт, ICP…"><div class="respdd objdd" hidden></div></div>
      ${fSel('Обʼєкт', 'objectId', [[NOOBJ, '✈ Відрядження без обʼєкта'], ...objOpts()], d.objectId, { req: true, none: '— оберіть обʼєкт —', re: true })}
      ${taskSiteFields(d)}
      <div class="grid2">${fInp('Початок', 'dateFrom', d.dateFrom, { type: 'date', req: true })}${fInp('Закінчення', 'dateTo', d.dateTo, { type: 'date', req: true })}</div>
@@ -253,6 +254,37 @@ function updPdTot(f) {
   el.innerHTML = Object.keys(t).length ? '<b>Разом:</b> ' + MKEYS.filter(k => t[k]).map(k => MSHORT[k] + ' ' + fmtN(t[k]) + ' ' + MU(k)).join(' · ') : '';
 }
 document.addEventListener('input', e => { if (e.target.name && /^pd_/.test(e.target.name)) updPdTot(e.target.form); });
+// ── пошук обʼєкта у формі завдання
+function objSearch(q) {
+  const words = String(q || '').toLowerCase().split(/\s+/).filter(Boolean);
+  const list = objectsSorted().map(o => ({ o, hay: [o.short, o.name, o.lvumg, o.settlement, o.site, o.icp, o.soOrder, o.soSubOrder, o.diameter, o.status].join(' ').toLowerCase() }));
+  const hit = words.length ? list.filter(x => words.every(w => x.hay.includes(w))) : list.filter(x => /в роботі|заплановано/.test(x.o.status || ''));
+  return hit.slice(0, 12).map(x => x.o);
+}
+function objDropdown(inp) {
+  const dd = inp.parentElement.querySelector('.objdd'); if (!dd) return;
+  const q = inp.value.trim(), res = objSearch(q);
+  dd.innerHTML = (res.length ? res.map(o => `<button type="button" class="respopt objopt" data-oid="${esc(o.id)}"><b>${esc(o.short || o.name)}</b><span class="small mute">${esc([o.status, o.lvumg && o.lvumg + ' ЛВУМГ', o.settlement && '📍 ' + o.settlement, o.diameter && 'Ø' + o.diameter].filter(Boolean).join(' · '))}</span></button>`).join('') : '<div class="small mute respnone">Нічого не знайдено</div>') +
+    (q ? '' : '<div class="small mute respnone">Показано обʼєкти «в роботі» і «заплановано» — почніть вводити для пошуку серед усіх</div>');
+  dd.hidden = false;
+}
+document.addEventListener('focusin', e => { if (e.target.matches && e.target.matches('input[data-objq]')) objDropdown(e.target); });
+document.addEventListener('input', e => { if (e.target.matches && e.target.matches('input[data-objq]')) objDropdown(e.target); });
+document.addEventListener('pointerdown', e => {
+  const opt = e.target.closest && e.target.closest('.objdd .objopt');
+  if (opt) {
+    e.preventDefault();
+    const f = opt.closest('form'), sel = f.querySelector('select[name=objectId]');
+    sel.value = opt.dataset.oid; opt.closest('.objdd').hidden = true;
+    sel.dispatchEvent(new Event('change', { bubbles: true }));
+    return;
+  }
+  if (!(e.target.closest && e.target.closest('.objsearch'))) document.querySelectorAll('.objdd').forEach(dd => (dd.hidden = true));
+});
+document.addEventListener('keydown', e => {
+  if (e.target.matches && e.target.matches('input[data-objq]') && e.key === 'Enter') { e.preventDefault(); const first = e.target.parentElement.querySelector('.objdd .objopt'); if (first) first.dispatchEvent(new Event('pointerdown', { bubbles: true })); }
+  if (e.target.matches && e.target.matches('input[data-objq]') && e.key === 'Escape') e.target.parentElement.querySelector('.objdd').hidden = true;
+});
 /** Діаметри обʼєкта: з картки обʼєкта і з попередніх завдань на ньому. */
 function objDiams(oid) {
   const o = get('Обʼєкти', oid); if (!o) return [];
@@ -325,9 +357,9 @@ function respDropdown(inp) {
 document.addEventListener('focusin', e => { if (e.target.matches && e.target.matches('input[data-resp]')) respDropdown(e.target); });
 document.addEventListener('input', e => { if (e.target.matches && e.target.matches('input[data-resp]')) respDropdown(e.target); });
 document.addEventListener('pointerdown', e => {
-  const opt = e.target.closest && e.target.closest('.respopt');
+  const opt = e.target.closest && e.target.closest('.respopt:not(.objopt)');
   if (opt) { e.preventDefault(); const inp = opt.closest('.respf').querySelector('input[data-resp]'); inp.value = opt.dataset.pib; inp.closest('.respf').querySelector('.respdd').hidden = true; const f = inp.closest('form'); const key = 'task:' + (f.dataset.id || 'new'); UI.draft[key] = { ...(UI.draft[key] || {}), ...formData(f) }; UI.dirty = false; render(); UI.dirty = true; return; }
-  if (!(e.target.closest && e.target.closest('.respf'))) document.querySelectorAll('.respdd').forEach(dd => (dd.hidden = true));
+  if (!(e.target.closest && e.target.closest('.respf'))) document.querySelectorAll('.respdd:not(.objdd)').forEach(dd => (dd.hidden = true));
 });
 FORMS.task = async (d, id) => {
   if (!need(d, [['month', 'місяць'], ['brigade', 'бригада'], ['objectId', 'обʼєкт або «відрядження без обʼєкта»'], ['dateFrom', 'початок'], ['dateTo', 'закінчення']])) return;
