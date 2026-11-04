@@ -1,5 +1,5 @@
 /* Service worker: застосунок відкривається і працює без інтернету */
-const CACHE = 'vlnk-v1.9.16';
+const CACHE = 'vlnk-v1.9.17';
 const SHELL = [
   './', 'index.html', 'app.css', 'config.js', 'manifest.webmanifest',
   'js/core.js', 'js/ui.js', 'js/views-work.js', 'js/views-data.js', 'js/views-vac.js', 'js/views-ppe.js', 'js/views-brief.js', 'js/docs.js', 'js/demo.js',
@@ -18,7 +18,7 @@ self.addEventListener('install', e => {
 self.addEventListener('message', e => { if (e.data && e.data.type === 'SKIP_WAITING') self.skipWaiting(); });
 
 self.addEventListener('activate', e => {
-  e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => k !== CACHE).map(k => caches.delete(k)))).then(() => self.clients.claim()));
+  e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => k !== CACHE && k !== 'vlnk-push').map(k => caches.delete(k)))).then(() => self.clients.claim()));
 });
 
 self.addEventListener('fetch', e => {
@@ -50,4 +50,30 @@ self.addEventListener('notificationclick', e => {
     if (c) { c.postMessage({ type: 'NAV', href }); return c.focus(); }
     return self.clients.openWindow(self.registration.scope + 'index.html' + href);
   }));
+});
+
+// push-сповіщення (портал може бути закритий): сервер лише будить телефон, текст забираємо з «вхідних» сервера сповіщень
+self.addEventListener('push', e => {
+  e.waitUntil((async () => {
+    let items = [];
+    try {
+      const c = await caches.open('vlnk-push');
+      const hit = await c.match(new URL('push-cfg', self.registration.scope).href);
+      const cfg = hit ? await hit.json() : null;
+      if (cfg && cfg.api && cfg.token) {
+        const r = await fetch(cfg.api, { method: 'POST', redirect: 'follow', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ action: 'inbox', token: cfg.token }) });
+        const j = await r.json();
+        if (j && j.ok) items = j.items || [];
+      }
+    } catch (err) { /* немає мережі — покажемо загальне сповіщення */ }
+    const opt = { icon: 'icons/icon-192.png', badge: 'icons/maskable-192.png', lang: 'uk' };
+    const cs = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    cs.forEach(c => c.postMessage({ type: 'SYNC' }));
+    if (!items.length) return self.registration.showNotification('Портал ВЛНК', { ...opt, body: 'Є нові зміни — відкрийте портал, щоб переглянути', tag: 'vlnk-push', data: { href: '#/notifs' } });
+    if (items.length > 3) return self.registration.showNotification('Портал ВЛНК: нових сповіщень — ' + items.length, { ...opt, body: items.slice(-4).map(x => x.title).join('\n'), tag: 'vlnk-push-many', data: { href: '#/notifs' } });
+    for (let i = 0; i < items.length; i++) {
+      const x = items[i];
+      await self.registration.showNotification(x.title, { ...opt, body: (x.body || '') + (x.by ? '\n— ' + x.by : ''), tag: 'vlnk-p-' + x.at + '-' + i, data: { href: x.href || '#/notifs' } });
+    }
+  })());
 });

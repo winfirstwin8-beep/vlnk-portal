@@ -374,7 +374,7 @@ async function doLogin(body) {
     const prev = LS.json('user');
     if (prev && prev.email !== res.user.email && MODE === 'live') { await IDB.clear('rows'); await IDB.putMany('meta', [['since', 0]]); }
     MODE = 'live'; ME = res.user;
-    LS.set('token', res.token); LS.set('user', JSON.stringify(res.user)); LS.set('mode', 'live');
+    LS.set('token', res.token); LS.set('user', JSON.stringify(res.user)); LS.set('mode', 'live'); if (pushOn()) pushCfgToSW();
     await start();
   } catch (e) { toast('Не вдалося зʼєднатися з сервером: ' + e.message); }
 }
@@ -386,6 +386,7 @@ async function startDemo() {
 }
 async function logout() {
   if (DB.pending && !await ask(`У черзі ${DB.pending} неперевантажених змін. Вони будуть втрачені. Вийти?`)) return;
+  if (MODE === 'live' && pushOn()) await pushUnsubscribe(true);
   if (MODE === 'live' && navigator.onLine) { try { await api({ action: 'logout' }, 8000); } catch (e) { /* неважливо */ } }
   if (MODE === 'live') { await IDB.clear('rows'); await IDB.clear('outbox'); await IDB.clear('meta'); }
   LS.set('token', null); LS.set('user', null); LS.set('mode', null); LS.set('notifs', null);
@@ -594,7 +595,7 @@ ROUTES.notifs = () => {
   const p = notifPrefs();
   const sysOk = 'Notification' in window;
   const perm = sysOk ? Notification.permission : 'unsupported';
-  let h = '';
+  let h = pushCard();
   const sysTxt = !sysOk ? '<span class="mute">цей браузер не підтримує сповіщення — встановіть портал на головний екран</span>'
     : perm === 'denied' ? '<span class="bad">заборонено в налаштуваннях браузера/телефону — дозвольте сповіщення для сайту порталу</span>'
     : p.sys && perm === 'granted' ? '<span class="ok">увімкнено</span>' : '<span class="mute">вимкнено</span>';
@@ -604,7 +605,7 @@ ROUTES.notifs = () => {
     <div class="f"><span>Зміни завдань по обʼєктах</span>${seg('np_tasks', [['mine', 'Мої бригади'], ['all', 'Усі бригади'], ['off', 'Вимкнено']], p.tasks).replace(/data-act="set"/g, 'data-act="notifpref"')}</div>
     <div class="f"><span>Нові новини</span>${seg('np_news', [['1', 'Так'], ['0', 'Ні']], p.news ? '1' : '0').replace(/data-act="set"/g, 'data-act="notifpref"')}</div>
     <div class="f"><span>Нові PDF-матеріали до обʼєктів</span>${seg('np_mats', [['1', 'Так'], ['0', 'Ні']], p.mats ? '1' : '0').replace(/data-act="set"/g, 'data-act="notifpref"')}</div>
-    <p class="small mute">Портал перевіряє зміни при відкритті, кожні 2 хвилини, поки він відкритий, і поки згорнутий — доки телефон його не призупинить. Якщо портал повністю закрито, сповіщення зʼявляться на дзвіночку при наступному відкритті. <b>Ваші власні зміни не сповіщаються</b> — сповіщення приходять про зміни, внесені іншими працівниками.</p>
+    <p class="small mute">Портал перевіряє зміни при відкритті і кожні 2 хвилини, поки він відкритий. ${pushOn() ? 'Коли портал закрито — сповіщення приходять через «Сповіщення на телефон, коли портал закрито» (вгорі).' : 'Щоб сповіщення приходили й тоді, коли портал закрито, — увімкніть «Сповіщення на телефон, коли портал закрито» (вгорі).'} <b>Ваші власні зміни не сповіщаються</b> — сповіщення приходять про зміни, внесені іншими працівниками.</p>
     <div class="row gap wrap"><span class="small">Остання перевірка: <b>${MODE === 'live' ? (DB.lastSync ? new Date(DB.lastSync).toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit' }) : '—') : 'демо'}</b>${DB.error ? ' · <span class="bad">' + esc(DB.error) + '</span>' : ''}</span>${MODE === 'live' ? '<button type="button" class="btn small ghost" data-act="sync">🔄 Перевірити зараз</button>' : ''}</div>`);
   const cnt = k => list.filter(x => k === 'all' || x.kind === k).length;
   h += `<div class="row between wrap">${seg('nkind', [['all', 'Усі · ' + cnt('all')], ['task', 'Завдання · ' + cnt('task')], ['news', 'Новини · ' + cnt('news')], ['mat', 'Матеріали · ' + cnt('mat')]], filt)}</div>`;
@@ -624,6 +625,67 @@ ACTS.notifclear = async () => { if (!await ask('Видалити всі спов
 ACTS.notifpref = d => {
   const k = d.k.replace('np_', '');
   setNotifPrefs({ [k]: k === 'tasks' ? d.v : d.v === '1' });
+  pushRefresh(true);
+  render();
+};
+/** Картка «Сповіщення на телефон, коли портал закрито» (Web Push) + налаштування сервера для керівника. */
+function pushCard() {
+  const url = pushApi(), on = pushOn(), sup = pushSupported();
+  const ios = /iPhone|iPad/.test(navigator.userAgent), standalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone;
+  let st, btns = '';
+  if (MODE !== 'live') { st = '<span class="mute">демо-режим — на робочому порталі тут буде кнопка «Увімкнути»</span>'; }
+  else if (!url) { st = '<span class="mute">ще не налаштовано керівником</span>'; }
+  else if (!sup) { st = '<span class="bad">' + (ios && !standalone ? 'на iPhone спершу встановіть портал на головний екран: Safari → «Поділитися» → «На початковий екран», і відкрийте портал з іконки' : 'цей браузер не підтримує сповіщення — відкрийте портал у Chrome або встановіть на головний екран') + '</span>'; }
+  else if (Notification.permission === 'denied') { st = '<span class="bad">сповіщення заборонено в налаштуваннях телефону/браузера для сайту порталу — дозвольте їх і натисніть «Увімкнути»</span>'; btns = '<button type="button" class="btn small primary" data-act="pushon">📲 Увімкнути</button>'; }
+  else if (on) { st = '<span class="ok">увімкнено на цьому пристрої</span>'; btns = '<button type="button" class="btn small ghost" data-act="pushtest">Надіслати тест</button><button type="button" class="btn small ghost" data-act="pushoff">Вимкнути</button>'; }
+  else { st = '<span class="mute">вимкнено на цьому пристрої</span>'; btns = '<button type="button" class="btn small primary" data-act="pushon">📲 Увімкнути</button>'; }
+  let h = `<div class="f"><span>Стан</span><div class="small">${st}</div><div class="row gap wrap">${btns}</div></div>
+    <p class="small mute">Як у месенджерах: телефон покаже сповіщення про нові й змінені завдання, новини та PDF-матеріали, навіть коли портал закрито. Що саме надходить — налаштовується нижче («Зміни завдань по обʼєктах», «Нові новини», «Нові PDF-матеріали»). Увімкніть на кожному телефоні окремо.</p>`;
+  if (isLead() && MODE === 'live') {
+    h += `<details class="pushadm"${url ? '' : ' open'}><summary class="small"><b>⚙️ Сервер сповіщень (керівник)</b> — ${url ? '<span class="ok">підключено</span>' : '<span class="warn">не підключено</span>'}</summary>
+      <ol class="small">
+        <li>Відкрийте <b>script.google.com</b> → «Новий проєкт», вставте вміст файлу <b>Push.gs</b> (замість усього тексту) і збережіть.</li>
+        <li>«Розгорнути» → «Нове розгортання» → тип «Вебзастосунок»; «Виконувати від імені» — <b>Я</b>; «Хто має доступ» — <b>Усі</b> → «Розгорнути», надайте дозволи.</li>
+        <li>Скопіюйте адресу вебзастосунку (закінчується на <b>/exec</b>), вставте нижче й натисніть «Зберегти», потім — «Створити ключі».</li>
+      </ol>
+      <div class="f"><span>Адреса сервера сповіщень (…/exec)</span><input id="pushurl" type="url" inputmode="url" autocomplete="off" value="${esc(url)}" placeholder="https://script.google.com/macros/s/…/exec"></div>
+      <div class="row gap wrap"><button type="button" class="btn small primary" data-act="pushurl">Зберегти</button>${url ? '<button type="button" class="btn small ghost" data-act="pushkeys">🔑 Створити ключі</button><button type="button" class="btn small ghost" data-act="pushinfo">Перевірити сервер</button>' : ''}</div>
+    </details>`;
+  }
+  return card('📲 Сповіщення на телефон, коли портал закрито', h);
+}
+ACTS.pushon = async () => {
+  try { toast('Підключення…'); await pushSubscribe(); toast('Сповіщення на телефон увімкнено'); } catch (e) { toast(String(e.message || e)); }
+  render();
+};
+ACTS.pushoff = async () => { await pushUnsubscribe(); toast('Сповіщення на цьому пристрої вимкнено'); render(); };
+ACTS.pushtest = async () => {
+  try { const r = await pushCall({ action: 'test' }); toast(r.ok ? 'Тест надіслано — сповіщення має зʼявитися за кілька секунд' : r.error || 'Помилка'); } catch (e) { toast('Сервер сповіщень недоступний: ' + e.message); }
+};
+ACTS.pushurl = async () => {
+  const v = String(($('#pushurl') || {}).value || '').trim();
+  if (v && !/^https:\/\/script\.google\.com\/macros\/s\/[\w-]+\/exec$/.test(v)) return toast('Адреса має бути виду https://script.google.com/macros/s/…/exec');
+  if (v && v === String(CFG.api || '').trim()) return toast('Це адреса основного API порталу — потрібна адреса окремого сервера сповіщень (Push.gs)');
+  const cur = all('Налаштування').find(x => x.key === 'pushApi');
+  await save('Налаштування', cur ? { ...cur, value: v } : { key: 'pushApi', value: v });
+  LS.set('pushApi', v || null);
+  toast(v ? 'Збережено. Тепер натисніть «Створити ключі»' : 'Сервер сповіщень відключено'); render();
+};
+ACTS.pushinfo = async () => {
+  try { const r = await pushCall({ action: 'info' }); toast(r.ok ? 'Сервер працює (версія ' + r.version + ')' + (r.key ? ', ключі створено' : ' — ключі ще не створено') : r.error || 'Помилка'); } catch (e) { toast('Сервер недоступний: ' + e.message); }
+};
+ACTS.pushkeys = async () => {
+  try {
+    const info = await pushCall({ action: 'info' });
+    if (!info.ok) return toast(info.error || 'Сервер недоступний');
+    let replace = false;
+    if (info.key) { if (!await ask('Ключі вже створено. Створити нові? Усім працівникам доведеться заново натиснути «Увімкнути» на своїх телефонах.', 'Створити нові')) return; replace = true; }
+    const kp = await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, ['sign']);
+    const jwk = await crypto.subtle.exportKey('jwk', kp.privateKey);
+    const r = await pushCall({ action: 'setvapid', jwk: { kty: jwk.kty, crv: jwk.crv, d: jwk.d, x: jwk.x, y: jwk.y }, replace });
+    toast(r.ok ? 'Ключі створено. Тепер натисніть «📲 Увімкнути»' : r.error || 'Помилка');
+    if (r.ok && replace) LS.set('pushOn', null);
+  } catch (e) { toast('Не вдалося: ' + e.message); }
   render();
 };
 ACTS.notifsys = async d => {
@@ -654,7 +716,10 @@ function notifDemo() {
   notifSave(L);
 }
 // натискання на системне сповіщення — відкрити потрібну сторінку
-if ('serviceWorker' in navigator) navigator.serviceWorker.addEventListener('message', e => { if (e.data && e.data.type === 'NAV' && e.data.href) { location.hash = e.data.href.replace(/^.*#/, '#'); } });
+if ('serviceWorker' in navigator) navigator.serviceWorker.addEventListener('message', e => {
+  if (e.data && e.data.type === 'NAV' && e.data.href) { location.hash = e.data.href.replace(/^.*#/, '#'); }
+  if (e.data && e.data.type === 'SYNC' && typeof sync === 'function') sync(); // прийшло push-сповіщення — підтягнути зміни
+});
 
 // ═════════ НАЛАШТУВАННЯ ═════════
 ROUTES.settings = () => {

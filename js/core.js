@@ -1,12 +1,13 @@
 /* Портал ВЛНК — ядро: утиліти, локальна база (IndexedDB), синхронізація, розрахунки */
 'use strict';
 
-const VER = '1.9.16';
+const VER = '1.9.17';
 /** Мінімальна версія серверного коду (Code.gs), з якою працює цей застосунок. */
 const NEED_API = '1.9.0';
 const CORP_RE = /@([a-z0-9-]+\.)*tsoua\.com$/i; // корпоративні адреси
 /** Що нового — показується один раз після оновлення (коротко, для працівників). */
 const CHANGES = {
+  '1.9.17': ['Сповіщення на телефон, як у месенджерах, — і коли портал закрито: Сповіщення (🔔) → «📲 Увімкнути» на кожному телефоні. Приходять нові й змінені завдання, новини, PDF-матеріали (на iPhone — портал має бути встановлений на головний екран)'],
   '1.9.16': ['Нове завдання: пошук обʼєкта за назвою, ЛВУМГ, населеним пунктом, ICP, ТОРО-замовленням чи діаметром — над полем «Обʼєкт»'],
   '1.9.15': ['Завдання: плановий обсяг робіт — окремо по кожному діаметру; у картці обʼєкта «Виконано/план» показано по кожному діаметру (Ø530: RT 40/60 ст. …) і разом'],
   '1.9.14': ['Планування / завдання: діаметри труб — вибір позначками з діаметрів обʼєкта (з картки і попередніх завдань) і кнопка «＋ Додати» для інших діаметрів; нові діаметри можна зберегти в картці обʼєкта'],
@@ -363,6 +364,7 @@ async function save(t, row) {
   if (!row.id) row.id = uid();
   row.updatedAt = Date.now();
   row.updatedBy = ME.email;
+  if (MODE === 'live') pushQueue(t, tbl(t).get(String(row.id)), row);
   putMem(t, row);
   await IDB.putMany('rows', [[t + '|' + row.id, { t, r: row }]]);
   if (MODE === 'live') {
@@ -398,6 +400,7 @@ async function sync(manual) {
   if (!navigator.onLine) { if (manual) toast('Немає інтернету — дані збережено на телефоні'); updateChip(); return; }
   DB.syncing = true; DB.error = ''; updateChip();
   try {
+    const pq = LS.json('pushq') || []; // власні зміни для сповіщень (до читання черги — усі вони вже в ній або на сервері)
     const ob = await IDB.getAll('outbox');
     const dedup = new Map();
     ob.values.forEach(c => dedup.set(c.t + '|' + c.r.id, c));
@@ -438,6 +441,8 @@ async function sync(manual) {
     DB.apiVer = res.apiVer || '0';
     if (await autoStartTasks()) n++;
     notifFlush();
+    pushFlush(pq);
+    pushRefresh();
     if (n || manual) onData(true);
     if (manual) toast('Синхронізовано' + (n ? ': оновлено ' + n : ''));
     await sendUploads();
@@ -473,46 +478,61 @@ function notifFmt(k, v) {
 }
 const notifSame = (a, b) => JSON.stringify(a === undefined || a === null ? '' : a) === JSON.stringify(b === undefined || b === null ? '' : b);
 /** Чи стосується завдання бригад, у яких я працюю в місяці завдання. */
-function notifMineTask(t) {
-  if (!ME || !ME.personId) return true;
+function notifMineTask(t, pid) {
+  pid = pid || (ME && ME.personId);
+  if (!pid) return true;
   const m = t.month || ym(t.dateFrom || today());
   const bs = all('Бригади').filter(b => b.month === m);
-  const mine = bs.find(b => brigadeMembers(b).includes(ME.personId));
+  const mine = bs.find(b => brigadeMembers(b).includes(pid));
   if (mine) return String(mine.num) === String(t.brigade);
   // у складі бригад місяця людини немає — за бригадою з картки працівника, інакше всі завдання
-  const pb = String((get('Персонал', ME.personId) || {}).brigade || '').trim();
+  const pb = String((get('Персонал', pid) || {}).brigade || '').trim();
   return pb ? pb === String(t.brigade) : true;
+}
+/** Опис зміни рядка для сповіщення {kind, title, body, href, by?} або null (без урахування налаштувань). */
+function notifDescribe(t, old, r) {
+  if (!r) return null;
+  if (t === 'Новини') {
+    if (truthy(r.deleted) || (old && !truthy(old.deleted))) return null;
+    return { kind: 'news', title: '📰 ' + (r.title || 'Новина'), body: String(r.text || '').slice(0, 220), href: '#/news', by: r.author || '' };
+  }
+  if (t === 'Завдання') {
+    const o = get('Обʼєкти', r.objectId) || {};
+    const head = (r.objectId ? o.short || 'Обʼєкт' : taskLabel(r)) + ' · ' + brName(r.brigade);
+    const per = uaDate(r.dateFrom) + (r.dateTo && r.dateTo !== r.dateFrom ? ' – ' + uaDate(r.dateTo) : '');
+    const href = r.objectId ? '#/object/' + r.objectId : '#/tasks';
+    if (!old || truthy(old.deleted)) return truthy(r.deleted) ? null : { kind: 'task', title: '🆕 Нове завдання: ' + head, body: per + (r.workType ? ' · ' + r.workType : '') + (arr(r.methods).length ? ' · ' + arr(r.methods).join(', ') : ''), href };
+    if (truthy(r.deleted)) return { kind: 'task', title: '🗑 Завдання видалено: ' + head, body: per, href: '#/tasks' };
+    const ch = NOTIF_TASK_FIELDS.filter(([k]) => !notifSame(old[k], r[k])).map(([k, l]) => l + ': ' + notifFmt(k, old[k]) + ' → ' + notifFmt(k, r[k]));
+    return ch.length ? { kind: 'task', title: '✏️ Зміни в завданні: ' + head, body: ch.join('\n'), href } : null;
+  }
+  if (t === 'Протоколи' && r.method === MAT_METHOD) {
+    if (truthy(r.deleted) || (old && !truthy(old.deleted))) return null;
+    const tk = get('Завдання', r.taskId), o = get('Обʼєкти', r.objectId) || {};
+    return { kind: 'mat', title: '📎 Нові матеріали: ' + (o.short || 'обʼєкт'), body: (r.number || 'PDF') + (r.note ? ' · ' + r.note : ''), href: tk ? '#/objmat/' + tk.id : '#/tasks' };
+  }
+  return null;
 }
 /** Порівнює рядок до і після синхронізації та готує сповіщення (лише зміни інших користувачів). */
 function notifCheck(t, old, r) {
   try {
     if (!r || !ME || (r.updatedBy && ME.email && String(r.updatedBy).toLowerCase() === String(ME.email).toLowerCase())) return;
-    const p = notifPrefs(); const pe = r.updatedBy ? personByEmail(r.updatedBy) : null; const by = pe ? shortName(pe.pib || '') : r.updatedBy ? String(r.updatedBy).split('@')[0] : '';
-    const add = x => NOTIF.fresh.push({ id: uid(), at: Date.now(), read: false, by, ...x });
-    if (t === 'Новини') {
-      if (!p.news || truthy(r.deleted) || (old && !truthy(old.deleted))) return;
-      add({ kind: 'news', title: '📰 ' + (r.title || 'Новина'), body: String(r.text || '').slice(0, 220), href: '#/news', by: r.author || by });
-      return;
-    }
-    if (t === 'Завдання') {
+    const ev = notifDescribe(t, old, r);
+    if (!ev) return;
+    const p = notifPrefs();
+    if (ev.kind === 'news' && !p.news) return;
+    if (ev.kind === 'task') {
       if (p.tasks === 'off') return;
       if (p.tasks === 'mine' && !notifMineTask(r) && !(old && notifMineTask(old))) return;
-      const o = get('Обʼєкти', r.objectId) || {};
-      const head = (r.objectId ? o.short || 'Обʼєкт' : taskLabel(r)) + ' · ' + brName(r.brigade);
-      const per = uaDate(r.dateFrom) + (r.dateTo && r.dateTo !== r.dateFrom ? ' – ' + uaDate(r.dateTo) : '');
-      if (!old || truthy(old.deleted)) { if (!truthy(r.deleted)) add({ kind: 'task', title: '🆕 Нове завдання: ' + head, body: per + (r.workType ? ' · ' + r.workType : '') + (arr(r.methods).length ? ' · ' + arr(r.methods).join(', ') : ''), href: r.objectId ? '#/object/' + r.objectId : '#/tasks' }); return; }
-      if (truthy(r.deleted)) { add({ kind: 'task', title: '🗑 Завдання видалено: ' + head, body: per, href: '#/tasks' }); return; }
-      const ch = NOTIF_TASK_FIELDS.filter(([k]) => !notifSame(old[k], r[k])).map(([k, l]) => l + ': ' + notifFmt(k, old[k]) + ' → ' + notifFmt(k, r[k]));
-      if (ch.length) add({ kind: 'task', title: '✏️ Зміни в завданні: ' + head, body: ch.join('\n'), href: r.objectId ? '#/object/' + r.objectId : '#/tasks' });
-      return;
     }
-    if (t === 'Протоколи' && r.method === MAT_METHOD) {
-      if (!p.mats || truthy(r.deleted) || (old && !truthy(old.deleted))) return;
+    if (ev.kind === 'mat') {
+      if (!p.mats) return;
       const tk = get('Завдання', r.taskId);
       if (p.tasks === 'mine' && tk && !notifMineTask(tk)) return;
-      const o = get('Обʼєкти', r.objectId) || {};
-      add({ kind: 'mat', title: '📎 Нові матеріали: ' + (o.short || 'обʼєкт'), body: (r.number || 'PDF') + (r.note ? ' · ' + r.note : ''), href: tk ? '#/objmat/' + tk.id : '#/tasks' });
     }
+    const pe = r.updatedBy ? personByEmail(r.updatedBy) : null;
+    const by = ev.by || (pe ? shortName(pe.pib || '') : r.updatedBy ? String(r.updatedBy).split('@')[0] : '');
+    NOTIF.fresh.push({ id: uid(), at: Date.now(), read: false, kind: ev.kind, title: ev.title, body: ev.body, href: ev.href, by });
   } catch (e) { console.warn('notif', e); }
 }
 /** Зберігає нові сповіщення, оновлює дзвіночок і показує системні сповіщення телефону. */
@@ -522,7 +542,7 @@ async function notifFlush() {
   notifSave(fresh.reverse().concat(notifList()));
   if (typeof updateBell === 'function') updateBell();
   const p = notifPrefs();
-  if (p.sys && 'Notification' in window && Notification.permission === 'granted') {
+  if (p.sys && !pushOn() && 'Notification' in window && Notification.permission === 'granted') {
     try {
       const reg = await navigator.serviceWorker.getRegistration();
       const show = (title, o) => reg ? reg.showNotification(title, o) : new Notification(title, o);
@@ -531,6 +551,105 @@ async function notifFlush() {
       else for (const x of fresh) await show(x.title, { ...opt, body: x.body, tag: 'vlnk-' + x.id, data: { href: x.href } });
     } catch (e) { console.warn('notif show', e); }
   } else if (document.visibilityState === 'visible') toast('🔔 ' + (fresh.length > 1 ? 'Нових сповіщень: ' + fresh.length : fresh[0].title));
+}
+
+// ───────── push-сповіщення на телефон (окремий сервер Push.gs; працюють і коли портал закрито) ─────────
+const PUSH_T = ['Завдання', 'Новини', 'Протоколи'];
+const pushApi = () => String(setting('pushApi', '') || LS.get('pushApi') || CFG.pushApi || '').trim();
+const pushOn = () => LS.get('pushOn') === '1';
+const pushSupported = () => 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+async function pushCall(body, timeoutMs = 60000) {
+  const url = pushApi();
+  if (!/^https:\/\/script\.google(usercontent)?\.com\//.test(url)) throw new Error('Сервер сповіщень не налаштовано');
+  const ctl = new AbortController(); const tm = setTimeout(() => ctl.abort(), timeoutMs);
+  try {
+    const r = await fetch(url, { method: 'POST', redirect: 'follow', signal: ctl.signal, headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ ...body, token: LS.get('token') }) });
+    return await r.json();
+  } finally { clearTimeout(tm); }
+}
+function b64uBytes(s) { s = String(s).replace(/-/g, '+').replace(/_/g, '/'); while (s.length % 4) s += '='; const b = atob(s); return Uint8Array.from(b, c => c.charCodeAt(0)); }
+/** Адреса сервера і токен — для service worker (він забирає текст сповіщень, коли портал закрито). */
+async function pushCfgToSW(clear) {
+  try {
+    const c = await caches.open('vlnk-push'), key = new URL('push-cfg', location.href).href;
+    if (clear) return void await c.delete(key);
+    await c.put(key, new Response(JSON.stringify({ api: pushApi(), token: LS.get('token') }), { headers: { 'Content-Type': 'application/json' } }));
+  } catch (e) { console.warn('push cfg', e); }
+}
+async function pushSubscribe() {
+  if (MODE !== 'live') throw new Error('У демо-режимі недоступно');
+  if (!pushSupported()) throw new Error('Цей браузер не підтримує сповіщення. На iPhone — встановіть портал на головний екран (Поділитися → «На початковий екран») і відкрийте з іконки');
+  const info = await pushCall({ action: 'info' });
+  if (!info.ok) throw new Error(info.error || 'Сервер сповіщень недоступний');
+  if (!info.key) throw new Error('Керівник ще не створив ключі сервера сповіщень');
+  let perm = Notification.permission;
+  if (perm === 'default') perm = await Notification.requestPermission();
+  if (perm !== 'granted') throw new Error('Дозвіл на сповіщення не надано');
+  const reg = await navigator.serviceWorker.ready;
+  let sub = await reg.pushManager.getSubscription();
+  if (sub && LS.get('pushKey') !== info.key) { try { await sub.unsubscribe(); } catch (e) { /* стара */ } sub = null; }
+  if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64uBytes(info.key) });
+  const dev = (/iPhone|iPad/.test(navigator.userAgent) ? 'iPhone/iPad' : /Android/.test(navigator.userAgent) ? 'Android' : /Windows/.test(navigator.userAgent) ? 'Windows' : /Mac/.test(navigator.userAgent) ? 'Mac' : 'пристрій');
+  const r = await pushCall({ action: 'subscribe', sub: sub.toJSON(), prefs: notifPrefs(), device: dev });
+  if (!r.ok) throw new Error(r.error || 'не вдалося підписатися');
+  LS.set('pushOn', '1'); LS.set('pushKey', info.key); LS.set('pushAt', String(Date.now()));
+  await pushCfgToSW();
+}
+async function pushUnsubscribe(quiet) {
+  let ep = '';
+  try { const reg = await navigator.serviceWorker.getRegistration(); const sub = reg && await reg.pushManager.getSubscription(); if (sub) { ep = sub.endpoint; await sub.unsubscribe(); } } catch (e) { /* неважливо */ }
+  if (ep && MODE === 'live' && navigator.onLine) { try { await pushCall({ action: 'unsubscribe', endpoint: ep }, 8000); } catch (e) { if (!quiet) console.warn(e); } }
+  LS.set('pushOn', null); LS.set('pushAt', null);
+  await pushCfgToSW(true);
+}
+/** Раз на добу (і після зміни налаштувань) оновлює підписку на сервері — адреса підписки телефону може змінюватися. */
+async function pushRefresh(force) {
+  if (!pushOn() || MODE !== 'live' || !pushSupported()) return;
+  if (!force && Date.now() - Number(LS.get('pushAt') || 0) < 864e5) return;
+  try {
+    if (Notification.permission !== 'granted') { LS.set('pushOn', null); return; }
+    await pushSubscribe();
+  } catch (e) { console.warn('push refresh', e); }
+}
+/** Хто має отримати сповіщення про завдання (для «Мої бригади»): склад бригади місяця / бригада з картки. */
+function pushRecipients(...tasks) {
+  const ids = new Set();
+  const ppl = all('Персонал').filter(p => !truthy(p.deleted));
+  tasks.filter(Boolean).forEach(t => ppl.forEach(p => { if (notifMineTask(t, p.id)) ids.add(p.id); }));
+  return ids.size >= ppl.length ? [] : [...ids];
+}
+/** Запам'ятовує власну зміну (до синхронізації), щоб після неї розіслати сповіщення іншим. */
+function pushQueue(t, old, r) {
+  try {
+    if (!PUSH_T.includes(t) || !pushApi() || !notifDescribe(t, old, r)) return;
+    const q = LS.json('pushq') || [];
+    if (q.some(x => x.t === t && x.id === r.id)) return; // уже в черзі — опис зміни складеться від першого стану
+    q.push({ t, id: String(r.id), old: old || null, at: Date.now() });
+    LS.set('pushq', JSON.stringify(q.slice(-60)));
+  } catch (e) { console.warn('pushq', e); }
+}
+/** Після успішної синхронізації — надсилає події серверу сповіщень (той будить телефони адресатів). */
+async function pushFlush(snapshot) {
+  if (!snapshot || !snapshot.length || !pushApi()) return;
+  const events = [];
+  snapshot.forEach(x => {
+    const r = tbl(x.t).get(x.id); if (!r) return;
+    const ev = notifDescribe(x.t, x.old, r); if (!ev) return;
+    let mine = [];
+    if (x.t === 'Завдання') mine = pushRecipients(r, x.old);
+    else if (ev.kind === 'mat') mine = pushRecipients(get('Завдання', r.taskId));
+    events.push({ kind: ev.kind, title: ev.title, body: ev.body, href: ev.href, mine });
+  });
+  const done = new Set(snapshot.map(x => x.t + '|' + x.id + '|' + x.at));
+  const drop = () => LS.set('pushq', JSON.stringify((LS.json('pushq') || []).filter(x => !done.has(x.t + '|' + x.id + '|' + x.at))));
+  if (!events.length) return drop();
+  try {
+    const r = await pushCall({ action: 'notify', events }, 90000);
+    if (r && (r.ok || r.error !== 'AUTH')) drop(); // помилку мережі — повторимо при наступній синхронізації
+  } catch (e) {
+    if (snapshot.some(x => Date.now() - x.at > 864e5)) drop(); // старші за добу — не розсилаємо
+    console.warn('push notify', e);
+  }
 }
 
 // ───────── файли (накази) ─────────
