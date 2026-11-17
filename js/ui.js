@@ -317,6 +317,23 @@ ACTS.install = async () => { if (!installPrompt) return; installPrompt.prompt();
 function showLogin(reauth) {
   $('#app').hidden = true;
   const L = $('#login'); L.hidden = false;
+  if (isM365()) {
+    L.innerHTML = `<div class="login">
+      <img class="login-logo" src="icons/logo.png" alt="NDT ВЛНК">
+      <h1>Портал ВЛНК</h1>
+      <p class="mute">Контроль завдань лабораторії неруйнівного контролю</p>
+      ${reauth ? '<p class="warn">Сесія завершилась. Увійдіть знову — незбережені дані залишаться в черзі.</p>' : ''}
+      <button class="btn primary wide" id="mslogin">Увійти через Microsoft 365</button>
+      <p class="small mute">Корпоративний обліковий запис @tsoua.com — той самий, що для Outlook і Teams.</p>
+      ${reauth ? '' : '<button class="btn ghost wide" id="demo">Переглянути демо без підключення</button>'}
+      <button class="btn ghost wide" id="togas">Вхід за кодом на пошту (Google-портал)</button>
+      <p class="mute small">Версія ${VER} · працює без інтернету після першого входу</p>
+    </div>`;
+    $('#mslogin').onclick = () => { if (!navigator.onLine) return toast('Для входу потрібен інтернет'); msLogin({ hint: (ME && ME.email) || LS.get('email') || '' }).catch(e => toast(e.message)); };
+    $('#togas').onclick = () => { LS.set('backend', 'gas'); showLogin(reauth); };
+    const dm = $('#demo'); if (dm) dm.onclick = startDemo;
+    return;
+  }
   const apiUrl = LS.get('api') || CFG.api || '';
   const st = LOGIN_ST;
   L.innerHTML = `<div class="login">
@@ -399,6 +416,19 @@ async function start() {
   MODE = LS.get('mode') || MODE; ME = LS.json('user') || ME;
   CFG = { ...(window.VLNK_CONFIG || {}) };
   CFG.api = LS.get('api') || CFG.api || '';
+  if (isM365()) {
+    // повернення зі сторінки входу Microsoft
+    try {
+      const u = await msHandleRedirect();
+      if (u) {
+        const prev = LS.json('user');
+        if (prev && prev.email !== u.email) { await IDB.open('vlnk'); await IDB.clear('rows'); await IDB.clear('outbox'); await IDB.putMany('meta', [['since', 0]]); await spReset(); }
+        MODE = 'live'; ME = { email: u.email, name: u.name || u.email, personId: '', role: (prev && prev.email === u.email && prev.role) || 'відвідувач' };
+        LS.set('mode', 'live'); LS.set('user', JSON.stringify(ME));
+      }
+    } catch (e) { toast('Вхід Microsoft: ' + e.message); }
+    if (MODE === 'live' && !LS.json('msTok')) { showLogin(); return; }
+  }
   if ((!MODE || !ME) && window.VLNK_AUTODEMO) return startDemo();
   if (!MODE || !ME) { showLogin(); return; }
   await IDB.open(MODE === 'demo' ? 'vlnk-demo' : 'vlnk');
@@ -732,6 +762,7 @@ ROUTES.settings = () => {
     ['У черзі на відправку', String(DB.pending) + (DB.upTasks.size ? ' + файлів: ' + DB.upTasks.size : '')],
     ['Помилка', DB.error ? `<span class="bad">${esc(DB.error)}</span>` : '']
   ]) + (MODE === 'live' ? `<div class="row gap"><button class="btn primary" data-act="sync">Синхронізувати зараз</button>${isLead() ? '<button class="btn ghost" data-act="fullsync">Повне оновлення</button>' : ''}</div>` : ''));
+  if (isLead() || isM365()) h += card('Microsoft 365', `<p class="small">${isM365() ? 'Портал працює з SharePoint.' : 'Перехід порталу на SharePoint і вхід корпоративним обліковим записом.'}</p><a class="btn ghost" href="#/m365">Microsoft 365 ›</a>`);
   h += card('Сповіщення', `<p class="small">Повідомлення про зміни завдань по обʼєктах, нові новини та PDF-матеріали.</p><a class="btn ghost" href="#/notifs">🔔 Сповіщення${notifUnread() ? ' · ' + notifUnread() : ''}</a>`);
   if (installPrompt) h += card('Застосунок', `<p>Встановіть портал на телефон — він відкриватиметься як звичайний застосунок і працюватиме без інтернету.</p><button class="btn primary" data-act="install">Встановити на телефон</button>`);
   else h += card('Встановлення на телефон', `<p class="small">Android (Chrome): меню ⋮ → «Додати на головний екран».<br>iPhone (Safari): «Поділитися» → «На екран Додому».</p>`);

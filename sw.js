@@ -1,8 +1,8 @@
 /* Service worker: застосунок відкривається і працює без інтернету */
-const CACHE = 'vlnk-v1.9.17';
+const CACHE = 'vlnk-v1.9.18';
 const SHELL = [
   './', 'index.html', 'app.css', 'config.js', 'manifest.webmanifest',
-  'js/core.js', 'js/ui.js', 'js/views-work.js', 'js/views-data.js', 'js/views-vac.js', 'js/views-ppe.js', 'js/views-brief.js', 'js/docs.js', 'js/demo.js',
+  'js/core.js', 'js/ui.js', 'js/m365.js', 'js/views-work.js', 'js/views-data.js', 'js/views-vac.js', 'js/views-ppe.js', 'js/views-brief.js', 'js/docs.js', 'js/demo.js',
   'icons/icon-192.png', 'icons/icon-512.png', 'icons/maskable-192.png', 'icons/maskable-512.png', 'icons/apple-touch-icon.png', 'icons/favicon.png', 'icons/logo.png'
 ];
 const LIBS = ['https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js'];

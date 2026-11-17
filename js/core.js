@@ -1,12 +1,13 @@
 /* Портал ВЛНК — ядро: утиліти, локальна база (IndexedDB), синхронізація, розрахунки */
 'use strict';
 
-const VER = '1.9.17';
+const VER = '1.9.18';
 /** Мінімальна версія серверного коду (Code.gs), з якою працює цей застосунок. */
 const NEED_API = '1.9.0';
 const CORP_RE = /@([a-z0-9-]+\.)*tsoua\.com$/i; // корпоративні адреси
 /** Що нового — показується один раз після оновлення (коротко, для працівників). */
 const CHANGES = {
+  '1.9.18': ['Підготовка до переходу на Microsoft 365: вхід корпоративним обліковим записом, дані в списках SharePoint, файли в бібліотеці сайту (Налаштування → Microsoft 365, для керівника)'],
   '1.9.17': ['Сповіщення на телефон, як у месенджерах, — і коли портал закрито: Сповіщення (🔔) → «📲 Увімкнути» на кожному телефоні. Приходять нові й змінені завдання, новини, PDF-матеріали (на iPhone — портал має бути встановлений на головний екран)'],
   '1.9.16': ['Нове завдання: пошук обʼєкта за назвою, ЛВУМГ, населеним пунктом, ICP, ТОРО-замовленням чи діаметром — над полем «Обʼєкт»'],
   '1.9.15': ['Завдання: плановий обсяг робіт — окремо по кожному діаметру; у картці обʼєкта «Виконано/план» показано по кожному діаметру (Ø530: RT 40/60 ст. …) і разом'],
@@ -381,6 +382,7 @@ async function applyLocal(t, row) { putMem(t, row); await IDB.putMany('rows', [[
 
 // ───────── синхронізація ─────────
 async function api(body, timeoutMs = 90000) {
+  if (typeof isM365 === 'function' && isM365() && MODE !== 'demo') return m365Api(body); // Microsoft 365 замість Apps Script
   const ctl = new AbortController();
   const tm = setTimeout(() => ctl.abort(), timeoutMs);
   try {
@@ -407,6 +409,7 @@ async function sync(manual) {
     const since = Number(await IDB.get('meta', 'since') || 0);
     const res = await api({ action: 'sync', since, changes: [...dedup.values()] });
     if (!res.ok) {
+      if (res.error === 'SETUP') { DB.error = 'Сайт SharePoint ще не налаштовано'; location.hash = '#/m365'; return; }
       if (res.error === 'AUTH') { DB.error = 'Потрібен повторний вхід'; toast('Сесія завершилась — увійдіть знову. Незбережені зміни залишаться в черзі.'); showLogin(true); return; }
       throw new Error(res.error || 'помилка сервера');
     }
@@ -555,7 +558,7 @@ async function notifFlush() {
 
 // ───────── push-сповіщення на телефон (окремий сервер Push.gs; працюють і коли портал закрито) ─────────
 const PUSH_T = ['Завдання', 'Новини', 'Протоколи'];
-const pushApi = () => String(setting('pushApi', '') || LS.get('pushApi') || CFG.pushApi || '').trim();
+const pushApi = () => (typeof isM365 === 'function' && isM365()) ? '' : String(setting('pushApi', '') || LS.get('pushApi') || CFG.pushApi || '').trim();
 const pushOn = () => LS.get('pushOn') === '1';
 const pushSupported = () => 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
 async function pushCall(body, timeoutMs = 60000) {
