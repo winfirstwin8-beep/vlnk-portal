@@ -8,7 +8,7 @@ window.VLNK_CONFIG = {
   backend: 'gas',
   m365: {
     tenant: '60c90dc4-2c12-4a20-ace8-b478f9616448',          // Directory (tenant) ID
-    clientId: '',                                             // Application (client) ID — від ІТ-служби після реєстрації застосунку
+    clientId: '79058944-feaa-4f19-8362-9d6b998cf1e6',                                           // Application (client) ID — від ІТ-служби після реєстрації застосунку
     site: 'https://cloudtsoua.sharepoint.com/teams/vlnk'      // сайт SharePoint «ВЛНК»
   }
 };
