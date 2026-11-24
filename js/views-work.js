@@ -611,6 +611,7 @@ function dayPlanTable(t, o = {}) {
   const body = days.map(d => {
     const r = byD[d] || {}, rs = reps.filter(x => x.date === d);
     const travel = rs.length && rs.every(x => truthy(x.travel));
+    const travelWork = !travel && rs.some(x => truthy(x.travelWork));
     const cells = keys.map(k => {
       const p = num(r[k]), f = rs.reduce((a, x) => a + num(x[k]), 0);
       tot[k].p += p; tot[k].f += f;
@@ -618,7 +619,7 @@ function dayPlanTable(t, o = {}) {
       return `<td class="${cls}">${p ? `<b>${fmtN(p)}</b>` : '<span class="mute">—</span>'}${f || (d <= td && p) ? `<small>ф ${fmtN(f)}</small>` : ''}</td>`;
     }).join('');
     const wd = new Date(d + 'T12:00:00').getDay();
-    return `<tr class="${d === td ? 'td' : ''}${wd === 0 || wd === 6 ? ' we' : ''}"><th>${uaDate(d).slice(0, 5)}<small>${WD_SHORT[wd]}</small></th>${cells}<td class="dpn">${esc(r.note || '')}${travel ? ' <span class="mute">🚐 дорога</span>' : ''}</td></tr>`;
+    return `<tr class="${d === td ? 'td' : ''}${wd === 0 || wd === 6 ? ' we' : ''}"><th>${uaDate(d).slice(0, 5)}<small>${WD_SHORT[wd]}</small></th>${cells}<td class="dpn">${esc(r.note || '')}${travel ? ' <span class="mute">🚐 дорога</span>' : travelWork ? ' <span class="mute">🚐 переїзд + роботи</span>' : ''}</td></tr>`;
   }).join('');
   const plan = planOf(t);
   const foot = `<tr class="tot"><th>Разом</th>${keys.map(k => `<td><b>${fmtN(tot[k].p)}</b><small>ф ${fmtN(tot[k].f)}${plan[k] ? ' · завд. ' + fmtN(plan[k]) : ''}</small></td>`).join('')}<td></td></tr>`;
@@ -1255,7 +1256,7 @@ function reportItem(r) {
   return `<a class="item" href="#/report/${esc(r.id)}">
     <div class="row between"><b>${isSummary(r) && r.periodFrom ? uaDate(r.periodFrom) + ' – ' : ''}${uaDate(r.date)} · ${esc(objShort(r.objectId))}</b>${r.brigade ? badge('Б' + esc(r.brigade)) : ''}</div>
     <span class="small mute">${isSummary(r) ? badge('підсумок за період', 'warn') + ' ' + c.workers.length + ' чол.' : `${c.workers.length} чол. × ${c.h} год${num(r.km) ? ' · ' + fmtN(num(r.km)) + ' км' : ''}`}</span>
-    <span class="small">${truthy(r.travel) ? badge('переїзд', 'warn') : (vol || '<span class="mute">обсяг не вказано</span>')} ${r.problems ? badge('⚠ проблеми', 'bad') : ''}${repPhotos(r.id).length ? ' ' + badge('📷 ' + repPhotos(r.id).length) : ''} ${isRepeatReport(r) ? badge('⚠ повторний звіт', 'bad') : hasRepeat(r) ? badge('є повторний', 'warn') : ''}</span>
+    <span class="small">${truthy(r.travel) ? badge('переїзд', 'warn') : (truthy(r.travelWork) ? badge('переїзд + роботи', 'warn') + ' ' : '') + (vol || '<span class="mute">обсяг не вказано</span>')} ${r.problems ? badge('⚠ проблеми', 'bad') : ''}${repPhotos(r.id).length ? ' ' + badge('📷 ' + repPhotos(r.id).length) : ''} ${isRepeatReport(r) ? badge('⚠ повторний звіт', 'bad') : hasRepeat(r) ? badge('є повторний', 'warn') : ''}</span>
     <span class="small mute">Подав: ${esc(repAuthor(r))}${repWhen(r) ? ' · ' + fmtDT(repWhen(r)) : ''}</span></a>`;
 }
 
@@ -1278,7 +1279,7 @@ ROUTES.report = id => {
     ['Графік', c.h === 11 ? '11 год (07:00–19:00)' : '8 год (08:00–17:00)'],
     ['Працівники', c.workers.map(w => esc(shortName(personName(w))) + (w === r.driverId ? ' 🚐' : '')).join(', ')],
     ['Авто', r.carId ? esc(carName(r.carId)) + (num(r.km) ? `, ${fmtN(num(r.km))} км` : '') : ''],
-    ['Характер', truthy(r.travel) ? 'переїзд між обʼєктами (без виконання)' : 'виконання робіт']
+    ['Характер', truthy(r.travel) ? 'переїзд між обʼєктами (без виконання)' : truthy(r.travelWork) ? 'переїзд між обʼєктами з виконанням робіт' : 'виконання робіт']
   ]));
   if (!truthy(r.travel)) {
     const vr = volRows(r);
@@ -1449,7 +1450,7 @@ ROUTES.reportform = (id = 'new') => {
   }
   if (!src && !d) UI.allowNewRep = false;
   if (!d) {
-    if (src) d = { ...src, workers: arr(src.workers), vol: volRows(src).map(v => ({ ...v })), matManual: arr(src.matManual), travel: truthy(src.travel) };
+    if (src) d = { ...src, workers: arr(src.workers), vol: volRows(src).map(v => ({ ...v })), matManual: arr(src.matManual), travel: truthy(src.travel), travelWork: !truthy(src.travel) && truthy(src.travelWork) };
     else {
       const date = today(), mb = myBrigade(date);
       const me = get('Персонал', ME.personId) || {};
@@ -1467,7 +1468,9 @@ ROUTES.reportform = (id = 'new') => {
      ${fSel('Завдання', 'taskId', tks.map(t => [t.id, taskLabel(t) + ' (' + uaDate(t.dateFrom) + '–' + uaDate(t.dateTo) + ')']), d.taskId, { none: tks.length ? '— без привʼязки —' : 'на цю дату завдань немає', re: true })}
      ${fSel('Обʼєкт', 'objectId', objectsSorted().map(o => [o.id, o.name || o.short]), d.objectId, { req: true, none: '— оберіть обʼєкт —', re: true })}
      ${d.objectId && get('Обʼєкти', d.objectId) ? `<p class="small objfull">${esc((get('Обʼєкти', d.objectId) || {}).name || objShort(d.objectId))}</p>` : ''}
-     ${fChk('Переїзд між обʼєктами (виконання робіт відсутнє)', 'travel', travel, { re: true })}
+     <div class="grid2 trvchk">${fChk('Переїзд між обʼєктами (виконання робіт відсутнє)', 'travel', travel, { re: true })}
+     ${fChk('Переїзд між обʼєктами з виконанням робіт', 'travelWork', !travel && truthy(d.travelWork), { re: true })}</div>
+     ${!travel && truthy(d.travelWork) ? '<p class="small mute">День переїзду, коли бригада ще й виконувала роботи: обсяги, матеріали й електростанція заповнюються як звичайно, а в табелях і реєстрі день позначається як переїзд з виконанням робіт.</p>' : ''}
      <div class="grid2">${fSel('Графік роботи', 'schedule', [['8', '8 год (08–17)'], ['11', '11 год (07–19)']], d.schedule)}
      ${fSel('Вид робіт', 'workType', WORK_TYPES, d.workType, { none: '—' })}</div>
      ${(() => {
@@ -1562,6 +1565,9 @@ async function saveRepPhotos(key, rep) {
 }
 
 ONCHANGE.report = (d, f) => {
+  // два види переїзду взаємовиключні
+  if (f === 'travel' && d.travel) d.travelWork = false;
+  if (f === 'travelWork' && d.travelWork) d.travel = false;
   const v = volFromForm(d); if (v.length) d.vol = v;
   if (f === 'date' || f === 'brigade') { fillFromBrigade(d); autoTask(d); }
   if (f === 'taskId') { const t = get('Завдання', d.taskId); if (t) fillFromTask(d, t); }
@@ -1585,6 +1591,7 @@ FORMS.report = async (d, id) => {
   if (ov.length && !await ask(`По обʼєкту «${objShort(d.objectId)}» за ${uaDate(d.date)} уже є звіт іншої бригади:\n` + ov.map(x => '• ' + repLine(x)).join('\n') + '\n\nПодати звіт вашої бригади?', 'Подати')) return;
   const vol = cleanVol(volFromForm(d));
   const row = { ...(src || {}), ...d, travel: !!d.travel };
+  row.travelWork = !row.travel && !!d.travelWork;
   // обсяги по діаметрах + загальні суми по методах (для моніторингу й табелів)
   row.vol = vol;
   row.diameters = vol.map(v => v.d).filter(Boolean);

@@ -190,7 +190,7 @@ function personDayShares(reps) {
     const [pid, date] = k.split('|');
     for (const r of rs) {
       const c = calc(r);
-      out.push({ pid, date, r, objectId: r.objectId, hours: c.h / rs.length, special: r.driverId === pid ? 0 : c.specialPer, travel: truthy(r.travel) });
+      out.push({ pid, date, r, objectId: r.objectId, hours: c.h / rs.length, special: r.driverId === pid ? 0 : c.specialPer, travel: truthy(r.travel), travelWork: !truthy(r.travel) && truthy(r.travelWork) });
     }
   }
   return out;
@@ -256,7 +256,7 @@ DOCS.move = p => {
   r++;
   const rows = sh.sort((a, b) => personName(a.pid).localeCompare(personName(b.pid), 'uk') || a.date.localeCompare(b.date)).map(x => {
     const o = (x.r && x.r.taskId && taskObj(get('Завдання', x.r.taskId))) || get('Обʼєкти', x.objectId) || {};
-    return [personName(x.pid), uaDate(x.date), x.r.brigade, o.short || '', [o.lvumg ? o.lvumg + ' ЛВУМГ' : '', o.settlement].filter(Boolean).join(', '), x.travel ? 'переїзд між обʼєктами' : 'виконання робіт', r2(x.hours)];
+    return [personName(x.pid), uaDate(x.date), x.r.brigade, o.short || '', [o.lvumg ? o.lvumg + ' ЛВУМГ' : '', o.settlement].filter(Boolean).join(', '), x.travel ? 'переїзд між обʼєктами' : x.travelWork ? 'переїзд між обʼєктами з виконанням робіт' : 'виконання робіт', r2(x.hours)];
   });
   r = grid(ws, r, ['№', 'ПІБ', 'Дата', 'Бригада', 'Обʼєкт', 'Місце виконання робіт', 'Характер', 'Годин'], rows.map((x, i) => [i + 1, ...x]), { left: [1, 4, 5] });
   r++;

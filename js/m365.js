@@ -4,7 +4,12 @@
 
 const M365_VER = '2.0.0';
 const GRAPH = 'https://graph.microsoft.com/v1.0';
-const MS_SCOPES = 'openid profile email offline_access User.Read Sites.ReadWrite.All Files.ReadWrite.All Mail.Send';
+/* Мінімальні делеговані дозволи (погоджено з ІТ):
+   Sites.Selected — лише сайт SharePoint «ВЛНК», на який адміністратор надав застосунку доступ (списки й бібліотека сайту);
+   Mail.Send — надсилання документів і запрошень з пошти працівника, що увійшов (без читання пошти);
+   offline_access — оновлення входу без повторного введення пароля (лише в браузері цього пристрою);
+   openid / profile / email — ім'я та адреса працівника, що увійшов. User.Read і Files.ReadWrite.All не потрібні. */
+const MS_SCOPES = 'openid profile email offline_access Sites.Selected Mail.Send';
 const SP_ROOT = 'Портал ВЛНК';
 /** Таблиці порталу → короткі латинські назви списків SharePoint (vlnk_<назва>). */
 const SP_LISTS = {
