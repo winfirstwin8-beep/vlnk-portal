@@ -166,10 +166,10 @@ ROUTES.objmat = tid => {
 };
 function matItem(p) {
   const pend = DB.upTasks.has(p.id);
-  const canDel = isLead() || (p.authorId && p.authorId === ME.personId);
+  const canDel = isLead() || (p.authorId && p.authorId === ME.personId) || (p.recordedById && p.recordedById === ME.personId);
   const has = !!(p.file || p.fileId) || pend;
   return `<div class="item"><div class="row between"><b>📄 ${esc(p.number || 'Документ')}</b>${badge('PDF', 'pri')}</div>
-    <span class="small mute">${uaDate(p.date)}${p.brigade ? ' · ' + brName(p.brigade) : ''}${p.enteredBy ? ' · завантажив: ' + esc(p.enteredBy) : ''}${p.note ? ' · ' + esc(p.note) : ''}</span>
+    <span class="small mute">${uaDate(p.date)}${p.brigade ? ' · ' + brName(p.brigade) : ''}${p.enteredBy ? ' · завантажив: ' + esc(p.enteredBy) + (p.recordedBy ? ' (від його імені — ' + esc(p.recordedBy) + ')' : '') : ''}${p.note ? ' · ' + esc(p.note) : ''}</span>
     <div class="row gap order">${has ? `<button type="button" class="btn small primary" data-act="protodl" data-id="${esc(p.id)}">⬇ Відкрити / завантажити</button>${DB.mailQ.has(p.id) ? badge('✉ лист у черзі', 'warn') : `<button type="button" class="btn small ghost" data-act="protomail" data-id="${esc(p.id)}">✉ На пошту</button>`}${navigator.canShare ? `<button type="button" class="btn small ghost" data-act="protoshare" data-id="${esc(p.id)}">↗ Поділитися</button>` : ''}` : '<span class="small mute">файл не додано</span>'}
     ${pend ? badge('⏳ відправляється', 'warn') : ''}${canDel ? `<button type="button" class="btn small ghost" data-act="del" data-t="Протоколи" data-id="${esc(p.id)}" data-back="${esc(location.hash)}">Видалити</button>` : ''}</div></div>`;
 }
